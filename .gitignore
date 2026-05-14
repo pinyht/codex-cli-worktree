@@ -1,0 +1,13 @@
+# Local Codex state
+worktree-state/
+worktrees/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
