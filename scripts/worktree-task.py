@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-VERSION = 5
+VERSION = 8
 STATE_ROOT = Path.home() / ".codex-cli-worktree" / "state"
 
 
@@ -143,7 +143,7 @@ def load_state(root):
     state_path = ensure_state(root)
     with state_path.open("r", encoding="utf-8") as f:
         state = json.load(f)
-    if state.get("version") in (1, 2, 3, 4) and isinstance(state.get("tasks"), dict):
+    if state.get("version") in (1, 2, 3, 4, 5, 6, 7) and isinstance(state.get("tasks"), dict):
         state["version"] = VERSION
         state.setdefault("preview", None)
         save_state(root, state)
@@ -557,36 +557,34 @@ def codex_open_command(worktree, task_name):
 def validate_sql_path(path):
     rel_path = validate_relative_path(path)
     if Path(rel_path).suffix.lower() != ".sql":
-        raise WorktreeError(f"$worktree-take-sql 只支持 .sql 文件: {path}")
+        raise WorktreeError(f"SQL 命令只支持 .sql 文件: {path}")
     return rel_path
 
 
-def cmd_take_sql(args):
-    root = require_main_project_dir()
-    state = load_state(root)
-
-    name = args.name.strip()
-    validate_task_name(name)
-    task = get_task(state, name)
-    task_path = Path(task["worktree"])
-    if not task_path.exists():
-        raise WorktreeError(f"任务目录不存在: {task_path}")
-
+def collect_sql_paths(paths):
     sql_paths = []
     seen = set()
-    for path in args.sql_paths:
+    for path in paths:
         rel_path = validate_sql_path(path)
         if rel_path in seen:
             raise WorktreeError(f"重复指定 SQL 文件: {rel_path}")
         seen.add(rel_path)
         sql_paths.append(rel_path)
+    return sql_paths
+
+
+def prepare_sql_take(root, state, name, sql_paths, command_name):
+    task = get_task(state, name)
+    task_path = Path(task["worktree"])
+    if not task_path.exists():
+        raise WorktreeError(f"任务目录不存在: {task_path}")
 
     changes_by_path = change_map(task_changes(task_path))
     for rel_path in sql_paths:
         status = changes_by_path.get(rel_path)
         if status != "A":
             raise WorktreeError(
-                "$worktree-take-sql 只支持从任务目录拿取新增且未合并的 SQL 文件。\n"
+                f"${command_name} 只支持从任务目录拿取新增且未合并的 SQL 文件。\n"
                 f"文件: {rel_path}\n"
                 f"当前状态: {status or '未变化'}"
             )
@@ -595,7 +593,10 @@ def cmd_take_sql(args):
             raise WorktreeError(f"不支持拿取符号链接 SQL 文件: {rel_path}")
         if not src.is_file():
             raise WorktreeError(f"任务 SQL 文件不存在或不是普通文件: {rel_path}")
+    return task, task_path
 
+
+def take_sql_files(root, state, task_path, sql_paths):
     reset_main_slot(root, state)
     save_state(root, state)
 
@@ -612,9 +613,23 @@ def cmd_take_sql(args):
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             src.unlink()
+            run(["git", "rm", "--cached", "--ignore-unmatch", "--", rel_path], task_path)
             taken.append(rel_path)
     except OSError as exc:
         raise WorktreeError(f"拿取 SQL 文件失败: {exc}") from exc
+    return taken
+
+
+def cmd_take_sql(args):
+    root = require_main_project_dir()
+    state = load_state(root)
+
+    name = args.name.strip()
+    validate_task_name(name)
+    sql_paths = collect_sql_paths(args.sql_paths)
+    task, task_path = prepare_sql_take(root, state, name, sql_paths, "worktree-take-sql")
+
+    taken = take_sql_files(root, state, task_path, sql_paths)
 
     task["status"] = "active"
     task["last_sql_taken_at"] = now()
@@ -630,19 +645,31 @@ def cmd_take_sql(args):
     print(f"$worktree-sync {task['name']}")
 
 
-def cmd_switch(args):
-    root = require_main_project_dir()
-    state = load_state(root)
+def commit_sql(root, sql_paths):
+    run(["git", "add", "--", *sql_paths], root)
+    message = "add " + " ".join(sql_paths)
+    run(["git", "commit", "-m", message], root)
+    return message
 
-    if args.clear:
-        if args.name:
-            raise WorktreeError("$worktree-switch --clear 不能同时指定任务名。")
-        reset_main_slot(root, state, required=True)
-        save_state(root, state)
-        return
 
-    name = (args.name or "").strip()
-    validate_task_name(name)
+def push_current_branch(root):
+    run(["git", "push"], root)
+
+
+def sync_all_tasks(root, state):
+    synced = []
+    failed = []
+    for name in list(state["tasks"].keys()):
+        try:
+            result = sync_one_task(root, state, name)
+            save_state(root, state)
+            synced.append((name, result))
+        except WorktreeError as exc:
+            failed.append((name, str(exc)))
+    return synced, failed
+
+
+def switch_to_task(root, state, name):
     task = get_task(state, name)
     task_path = Path(task["worktree"])
     if not task_path.exists():
@@ -672,6 +699,66 @@ def cmd_switch(args):
 
     print(f"已切换主项目目录到任务预览状态: {task['name']}")
     print("该操作只用于临时验证；不会更新任务基线、不会反向同步、不会自动 commit。")
+
+
+def cmd_push_sql(args):
+    root = require_main_project_dir()
+    state = load_state(root)
+
+    name = args.name.strip()
+    validate_task_name(name)
+    sql_paths = collect_sql_paths(args.sql_paths)
+    task, task_path = prepare_sql_take(root, state, name, sql_paths, "worktree-push-sql")
+
+    taken = take_sql_files(root, state, task_path, sql_paths)
+    task["status"] = "active"
+    task["last_sql_taken_at"] = now()
+    task["updated_at"] = now()
+    state["preview"] = None
+    save_state(root, state)
+
+    print(f"已从任务拿取 SQL: {task['name']}")
+    for rel_path in taken:
+        print(f"- {rel_path}")
+
+    message = commit_sql(root, taken)
+    print(f"已提交 SQL: {message}")
+
+    push_current_branch(root)
+    print("已执行 git push。")
+
+    synced, failed = sync_all_tasks(root, state)
+    if synced:
+        print("已同步任务:")
+        for task_name, result in synced:
+            print(f"- {task_name}: {result}")
+    if failed:
+        print("以下任务同步被阻止:")
+        for task_name, message_text in failed:
+            print(f"- {task_name}")
+            print(message_text)
+            if "无法直接拉取主项目最新提交" in message_text:
+                print(sync_conflict_advice(task_name))
+        if any(task_name == name for task_name, _message in failed):
+            raise WorktreeError("当前 SQL 对应任务同步失败，已停止切换预览。")
+
+    switch_to_task(root, state, name)
+
+
+def cmd_switch(args):
+    root = require_main_project_dir()
+    state = load_state(root)
+
+    if args.clear:
+        if args.name:
+            raise WorktreeError("$worktree-switch --clear 不能同时指定任务名。")
+        reset_main_slot(root, state, required=True)
+        save_state(root, state)
+        return
+
+    name = (args.name or "").strip()
+    validate_task_name(name)
+    switch_to_task(root, state, name)
 
 
 def cmd_current(_args):
@@ -748,6 +835,25 @@ def cmd_end(args):
     print(f"已清理 worktree 任务: {name}")
 
 
+def cmd_status(_args):
+    root, current_root, task_name, _task = repo_context()
+    print(f"当前 Git 仓库: {current_root}")
+    if task_name:
+        print(f"当前 worktree 任务: {task_name}")
+        print(f"主项目目录: {root}")
+    else:
+        print("当前位于主项目目录。")
+
+    output = run(
+        ["git", "status", "--short", "--branch", "--untracked-files=all"],
+        current_root,
+    ).stdout.decode(errors="replace").rstrip("\n")
+    if output:
+        print(output)
+    else:
+        print("工作区干净。")
+
+
 def cmd_help(_args):
     print(
         """codex-cli-worktree helper
@@ -757,12 +863,14 @@ Internal subcommands:
   list
   info <name>
   current
+  status
   switch <name>
   switch --clear
   merge <name>
   sync <name>
   sync --all
   take-sql <name> <sql> [sql...]
+  push-sql <name> <sql> [sql...]
   end <name>
   help
 
@@ -792,6 +900,11 @@ def build_parser():
     p.add_argument("sql_paths", nargs="+")
     p.set_defaults(func=cmd_take_sql)
 
+    p = sub.add_parser("push-sql")
+    p.add_argument("name")
+    p.add_argument("sql_paths", nargs="+")
+    p.set_defaults(func=cmd_push_sql)
+
     p = sub.add_parser("switch")
     p.add_argument("name", nargs="?")
     p.add_argument("--clear", action="store_true")
@@ -799,6 +912,9 @@ def build_parser():
 
     p = sub.add_parser("current")
     p.set_defaults(func=cmd_current)
+
+    p = sub.add_parser("status")
+    p.set_defaults(func=cmd_status)
 
     p = sub.add_parser("end")
     p.add_argument("name")

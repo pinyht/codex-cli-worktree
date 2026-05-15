@@ -14,7 +14,9 @@ This project installs a set of Codex Skills and a Python helper script to make m
 - Restore the main project directory to a clean state, then copy a task's changes into it for preview without contaminating other tasks.
 - Restore the main project directory to a clean state, then copy task changes back into it without auto-committing.
 - Take newly added SQL migration files from a task into the main project directory so they can be reviewed, committed, and synced back before the rest of the task is merged.
+- Push task SQL migrations into mainline in one command, sync all tasks, and switch back to that task preview.
 - List, inspect the current window, clear previews, sync, and clean up worktree tasks.
+- Inspect the current Git worktree status from inside Codex CLI, making uncommitted files and SQL paths easy to see.
 - The generated continue-development command tries to set the terminal title to the task name, making multiple Codex CLI windows easier to distinguish.
 - Store per-repository task state under `~/.codex-cli-worktree/state/`.
 - Install Codex Skills into `~/.agents/skills/codex-cli-worktree/`.
@@ -74,9 +76,11 @@ After installing and restarting Codex CLI, type the skill name in the chat input
 ```text
 $worktree-list
 $worktree-new fix login redirect
+$worktree-status
 $worktree-switch fix login redirect
 $worktree-merge fix login redirect
 $worktree-take-sql fix login redirect migrations/18.sql
+$worktree-push-sql fix login redirect migrations/18.sql
 ```
 
 `$worktree-*` is a Codex Skill mention, not a shell command and not the old `/worktree-*` slash command. Type `$worktree-` and use Codex completion to choose a skill.
@@ -110,12 +114,14 @@ Unless noted otherwise, open Codex CLI in the main project directory before usin
 | `$worktree-list` | Main project directory; task directories also work | List worktree tasks for the current Git repository. |
 | `$worktree-info <task name>` | Main project directory; task directories also work | Show the task status, branch, task directory, and a one-line command to continue development. |
 | `$worktree-current` | Main project directory; task directories also work | Show the current task for this window, or whether the main project directory is in a switch preview, baseline, or uncommitted state. |
+| `$worktree-status` | Main project directory; task directories also work | Show `git status --short --branch --untracked-files=all` for the current Git repository, useful for checking uncommitted files and SQL paths. |
 | `$worktree-switch <task name>` | Main project directory | Restore the main project directory, then copy the task directory's changes into it for preview. It does not sync back or commit. |
 | `$worktree-switch --clear` | Main project directory | Clear the current switch preview, restore the main project directory to the current commit, and remove preview-created files. |
 | `$worktree-merge <task name>` | Main project directory | Restore the main project directory, then copy the task directory's changes into it without committing. |
 | `$worktree-sync <task name>` | Main project directory | Bring the main project's latest commit into one task directory, similar to pulling mainline in that task directory. It stops on conflicts. |
 | `$worktree-sync --all` | Main project directory | Bring the main project's latest commit into all task directories. Tasks that cannot be updated automatically are stopped and listed in the summary. |
 | `$worktree-take-sql <task name> <sql...>` | Main project directory | Take newly added `.sql` files from a task worktree into the main project directory and delete them from the task worktree. Multiple SQL files are supported. It does not commit. |
+| `$worktree-push-sql <task name> <sql...>` | Main project directory | Take newly added `.sql` files from a task worktree, delete the task copies, auto add/commit/push, sync all tasks, then switch to that task preview. |
 | `$worktree-end <task name>` | Main project directory | Remove the task worktree, task branch, and task state. This stops if the task still has unmerged changes. |
 | `$worktree-help` | Any Git project directory | Show command help. |
 
@@ -142,6 +148,8 @@ The continue-development command printed by `$worktree-new` and `$worktree-info`
 
 If you forget which task the current window belongs to, type `$worktree-current`. In a task directory it prints the task name. In the main project directory it prints whether you are in a switch preview, the mainline baseline, or an uncommitted state.
 
+To check uncommitted files without leaving Codex CLI, type `$worktree-status`. It prints the current Git repository path and `git status --short --branch --untracked-files=all`; newly generated SQL appears with relative paths, for example `?? migrations/18.sql`.
+
 If the main project directory has a new commit that task directories should receive, type `$worktree-sync fix login redirect` or `$worktree-sync --all` from the main project directory. The main project directory must have no uncommitted changes before sync runs. If updating a task would overwrite task work, the tool stops.
 
 If a task generated database migration SQL but the main project directory should control migration order, run this from the main project directory:
@@ -151,6 +159,14 @@ $worktree-take-sql fix login redirect migrations/18.sql migrations/19.sql
 ```
 
 This command only accepts `.sql` files. It copies those newly added SQL files from the task worktree into the main project directory and deletes the matching files from the task worktree. It does not commit. Review and commit the SQL in the main project directory, then run `$worktree-sync fix login redirect` so the task worktree receives the SQL from mainline.
+
+If you want a one-command flow that pushes SQL into mainline and returns to the task preview, run:
+
+```text
+$worktree-push-sql fix login redirect migrations/18.sql migrations/19.sql
+```
+
+It runs: take SQL, delete the task SQL copies, `git add`, `git commit -m "add migrations/18.sql migrations/19.sql"`, `git push`, `$worktree-sync --all`, then `$worktree-switch fix login redirect`. If push fails or the target task cannot sync, the command stops and prints the reason.
 
 ## State and generated files
 
@@ -175,7 +191,8 @@ State files are stored only on your machine and are not written into the project
 - `$worktree-switch` restores the main project directory to the current commit and removes preview-created files before copying task changes when the main project directory is clean or equals the recorded switch preview. Unknown uncommitted changes stop the operation.
 - `$worktree-merge` restores and cleans the main project debug slot before copying task changes. It does not auto-commit.
 - `$worktree-take-sql` only handles newly added, unmerged `.sql` files in a task worktree. It copies them into the main project directory, deletes the task copy, and does not auto-commit.
-- Unknown uncommitted changes in the main project directory stop switch/merge/sync/take-sql.
+- `$worktree-push-sql` only handles newly added, unmerged `.sql` files in a task worktree. It auto-commits and pushes with the commit message format `add SQL SQL`.
+- Unknown uncommitted changes in the main project directory stop switch/merge/sync/take-sql/push-sql.
 - Sync only brings the main project's latest commit into task directories. It stops on conflicts or when it might overwrite task work, and has no force-overwrite option.
 - The tool refuses to end a task when the task worktree has unmerged changes.
 - Codex should stop and ask before resolving semantic conflicts such as database schemas, routing, permissions, authorization, configuration, or state machines.

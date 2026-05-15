@@ -22,6 +22,7 @@ $worktree-new <任务名>      创建任务 worktree 和任务分支
 $worktree-list              查看当前仓库的任务列表
 $worktree-info <任务名>     查看任务状态、分支、任务目录和继续开发命令
 $worktree-current           查看当前窗口对应任务，或主目录当前状态
+$worktree-status            查看当前窗口 Git 未提交状态
 $worktree-switch <任务名>   恢复主项目目录后临时复制任务改动用于验证
 $worktree-switch --clear    清除 switch 预览，恢复主项目目录并清理新增文件
 $worktree-merge <任务名>    恢复主项目目录后复制任务改动到主项目，不自动 commit
@@ -29,6 +30,8 @@ $worktree-sync <任务名>     把主项目最新提交带到任务目录
 $worktree-sync --all        把主项目最新提交带到所有任务目录
 $worktree-take-sql <任务名> <sql...>
                             把任务新增 SQL 拿到主目录并从任务目录删除
+$worktree-push-sql <任务名> <sql...>
+                            拿取任务新增 SQL，自动 commit/push/sync --all 并切到任务预览
 $worktree-end <任务名>      清理任务 worktree、任务分支和任务状态
 $worktree-help              查看本帮助
 ```
@@ -45,7 +48,9 @@ $worktree-help              查看本帮助
 8. 主项目有新提交后，可执行 `$worktree-sync --all` 带到未完成任务。
 9. 执行 `$worktree-end 任务名` 清理任务。
 10. 如需查看当前窗口任务名，执行 `$worktree-current`。
-11. 如果任务产生数据库迁移 SQL，可先在主项目目录执行 `$worktree-take-sql 任务名 migrations/1.sql`，手动 commit 后再 `$worktree-sync 任务名`。
+11. 如需查看当前窗口未提交文件，执行 `$worktree-status`。
+12. 如果任务产生数据库迁移 SQL，可先在主项目目录执行 `$worktree-take-sql 任务名 migrations/1.sql`，手动 commit 后再 `$worktree-sync 任务名`。
+13. 如果希望一键提交并切回任务预览，可执行 `$worktree-push-sql 任务名 migrations/1.sql`。
 
 说明：
 
