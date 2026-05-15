@@ -369,16 +369,18 @@ def cmd_end(args):
 
 def cmd_help(_args):
     print(
-        """worktree 并行开发命令:
-  worktree-task.py new <任务名>       创建任务 worktree
-  worktree-task.py merge <任务名>     合并到主项目，不自动 commit，并反向同步
-  worktree-task.py sync <任务名>      把主项目当前文件同步到任务 worktree
-  worktree-task.py end <任务名>       清理任务 worktree 和分支
-  worktree-task.py list               查看任务列表
-  worktree-task.py info <任务名>      查看任务状态、分支和任务目录
+        """codex-cli-worktree helper
 
-推荐从主项目目录执行。主项目目录用于合并、验证和手动 commit；任务目录用于开发。
-任务状态按仓库隔离保存在 ~/.codex-cli-worktree/state/。"""
+Internal subcommands:
+  new <name>
+  list
+  info <name>
+  merge <name>
+  sync <name>
+  end <name>
+  help
+
+User-facing help is provided by the $worktree-help skill."""
     )
 
 
