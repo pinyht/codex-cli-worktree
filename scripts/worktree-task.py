@@ -201,7 +201,7 @@ def tree_from_worktree(path):
     with tempfile.NamedTemporaryFile(prefix="codex-worktree-index-") as index_file:
         index_file.close()
         env = {"GIT_INDEX_FILE": index_file.name}
-        run(["git", "read-tree", "--empty"], path, env=env)
+        run(["git", "read-tree", "HEAD"], path, env=env)
         run(["git", "add", "-A", "--", "."], path, env=env)
         return text(["git", "write-tree"], path, env=env)
 
