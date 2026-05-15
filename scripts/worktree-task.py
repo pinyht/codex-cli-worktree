@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 VERSION = 1
-STATE_DIR = Path(".codex/worktree-state")
+STATE_ROOT = Path.home() / ".codex-cli-worktree" / "state"
 
 
 class WorktreeError(Exception):
@@ -49,10 +49,6 @@ def repo_root():
     return Path(text(["git", "rev-parse", "--show-toplevel"], Path.cwd())).resolve()
 
 
-def state_root():
-    return Path.home()
-
-
 def repo_state_id(root):
     digest = hashlib.sha1(str(root).encode("utf-8")).hexdigest()[:12]
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", root.name).strip("-").lower() or "repo"
@@ -60,7 +56,7 @@ def repo_state_id(root):
 
 
 def repo_state_dir(root):
-    return state_root() / STATE_DIR / repo_state_id(root)
+    return STATE_ROOT / repo_state_id(root)
 
 
 def now():
@@ -311,7 +307,7 @@ def cmd_sync(args):
         print("任务 worktree 存在未合并改动，已停止同步。")
         print("未合并文件:")
         print(changed_files(root, base_tree, task_tree))
-        print("请先执行 /worktree-merge，或确认放弃这些改动后让 Codex 使用 --force。")
+        print("请先执行 $worktree-merge，或确认放弃这些改动后让 Codex 使用 --force。")
         return
 
     main_tree = tree_from_worktree(root)
@@ -350,7 +346,7 @@ def cmd_end(args):
             print("任务 worktree 还有未合并改动，已停止清理。")
             print("未合并文件:")
             print(changed_files(root, base_tree, current_tree))
-            print("请先执行 /worktree-merge，或确认放弃后让 Codex 使用 --force。")
+            print("请先执行 $worktree-merge，或确认放弃后让 Codex 使用 --force。")
             return
         run(["git", "worktree", "remove", "--force", str(task_path)], root)
 
@@ -374,7 +370,7 @@ def cmd_help(_args):
   worktree-task.py resume <任务名>    输出任务目录和状态
 
 推荐从主项目目录执行。主项目目录用于合并、验证和手动 commit；任务目录用于开发。
-任务状态按仓库隔离保存在 ~/.codex/worktree-state/。"""
+任务状态按仓库隔离保存在 ~/.codex-cli-worktree/state/。"""
     )
 
 
