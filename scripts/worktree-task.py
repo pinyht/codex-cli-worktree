@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-VERSION = 4
+VERSION = 5
 STATE_ROOT = Path.home() / ".codex-cli-worktree" / "state"
 
 
@@ -143,7 +143,7 @@ def load_state(root):
     state_path = ensure_state(root)
     with state_path.open("r", encoding="utf-8") as f:
         state = json.load(f)
-    if state.get("version") in (1, 2, 3) and isinstance(state.get("tasks"), dict):
+    if state.get("version") in (1, 2, 3, 4) and isinstance(state.get("tasks"), dict):
         state["version"] = VERSION
         state.setdefault("preview", None)
         save_state(root, state)
@@ -266,6 +266,13 @@ def format_changes(changes):
     if not changes:
         return "(无文件变化)"
     return "\n".join(f"{status}\t{path}" for status, path in changes)
+
+
+def change_map(changes):
+    result = {}
+    for status, path in changes:
+        result[path] = status
+    return result
 
 
 def remove_path(path):
@@ -425,8 +432,9 @@ def cmd_new(args):
     print(f"分支: {branch}")
     print(f"目录: {worktree}")
     print("继续开发命令:")
-    print(f"cd {sh_quote(str(worktree))} && codex")
+    print(codex_open_command(str(worktree), name))
     print("请在该目录中打开新的 Codex CLI 继续开发；不要启动项目服务。")
+    print("支持终端标题的窗口会显示当前 worktree 任务名。")
 
 
 def cmd_list(_args):
@@ -541,6 +549,87 @@ def sh_quote(value):
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
+def codex_open_command(worktree, task_name):
+    title = f"worktree: {task_name}"
+    return f"cd {sh_quote(worktree)} && printf '\\033]0;%s\\007' {sh_quote(title)} && codex"
+
+
+def validate_sql_path(path):
+    rel_path = validate_relative_path(path)
+    if Path(rel_path).suffix.lower() != ".sql":
+        raise WorktreeError(f"$worktree-take-sql 只支持 .sql 文件: {path}")
+    return rel_path
+
+
+def cmd_take_sql(args):
+    root = require_main_project_dir()
+    state = load_state(root)
+
+    name = args.name.strip()
+    validate_task_name(name)
+    task = get_task(state, name)
+    task_path = Path(task["worktree"])
+    if not task_path.exists():
+        raise WorktreeError(f"任务目录不存在: {task_path}")
+
+    sql_paths = []
+    seen = set()
+    for path in args.sql_paths:
+        rel_path = validate_sql_path(path)
+        if rel_path in seen:
+            raise WorktreeError(f"重复指定 SQL 文件: {rel_path}")
+        seen.add(rel_path)
+        sql_paths.append(rel_path)
+
+    changes_by_path = change_map(task_changes(task_path))
+    for rel_path in sql_paths:
+        status = changes_by_path.get(rel_path)
+        if status != "A":
+            raise WorktreeError(
+                "$worktree-take-sql 只支持从任务目录拿取新增且未合并的 SQL 文件。\n"
+                f"文件: {rel_path}\n"
+                f"当前状态: {status or '未变化'}"
+            )
+        src = task_path / rel_path
+        if src.is_symlink():
+            raise WorktreeError(f"不支持拿取符号链接 SQL 文件: {rel_path}")
+        if not src.is_file():
+            raise WorktreeError(f"任务 SQL 文件不存在或不是普通文件: {rel_path}")
+
+    reset_main_slot(root, state)
+    save_state(root, state)
+
+    for rel_path in sql_paths:
+        dst = root / rel_path
+        if dst.exists() or dst.is_symlink():
+            raise WorktreeError(f"主项目目录已存在同路径文件，已停止: {rel_path}")
+
+    taken = []
+    try:
+        for rel_path in sql_paths:
+            src = task_path / rel_path
+            dst = root / rel_path
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            src.unlink()
+            taken.append(rel_path)
+    except OSError as exc:
+        raise WorktreeError(f"拿取 SQL 文件失败: {exc}") from exc
+
+    task["status"] = "active"
+    task["last_sql_taken_at"] = now()
+    task["updated_at"] = now()
+    state["preview"] = None
+    save_state(root, state)
+
+    print(f"已从任务拿取 SQL: {task['name']}")
+    for rel_path in taken:
+        print(f"- {rel_path}")
+    print("这些 SQL 已复制到主项目目录，并已从任务 worktree 删除。")
+    print("请在主项目目录 review 后手动提交，然后执行:")
+    print(f"$worktree-sync {task['name']}")
+
+
 def cmd_switch(args):
     root = require_main_project_dir()
     state = load_state(root)
@@ -629,8 +718,9 @@ def cmd_info(args):
     print(f"分支: {task['branch']}")
     print(f"目录: {task['worktree']}")
     print("继续开发命令:")
-    print(f"cd {sh_quote(task['worktree'])} && codex")
+    print(codex_open_command(task["worktree"], task["name"]))
     print("请在该目录中打开新的 Codex CLI 继续开发；不要启动项目服务。")
+    print("支持终端标题的窗口会显示当前 worktree 任务名。")
 
 
 def cmd_end(args):
@@ -672,6 +762,7 @@ Internal subcommands:
   merge <name>
   sync <name>
   sync --all
+  take-sql <name> <sql> [sql...]
   end <name>
   help
 
@@ -695,6 +786,11 @@ def build_parser():
     p.add_argument("name", nargs="?")
     p.add_argument("--all", action="store_true")
     p.set_defaults(func=cmd_sync)
+
+    p = sub.add_parser("take-sql")
+    p.add_argument("name")
+    p.add_argument("sql_paths", nargs="+")
+    p.set_defaults(func=cmd_take_sql)
 
     p = sub.add_parser("switch")
     p.add_argument("name", nargs="?")

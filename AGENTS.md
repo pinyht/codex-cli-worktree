@@ -31,6 +31,7 @@ python3 install.py
   - `$worktree-merge 任务名`
   - `$worktree-sync 任务名`
   - `$worktree-sync --all`
+  - `$worktree-take-sql 任务名 SQL文件...`
   - `$worktree-end 任务名`
   - `$worktree-list`
   - `$worktree-info 任务名`
@@ -50,6 +51,7 @@ python3 uninstall.py
 - `install.py` 必须幂等：重复执行不能破坏用户已有 `~/.codex/AGENTS.md`，只能替换标记块之间的内容。
 - 本机任务状态必须按仓库隔离保存在 `~/.codex-cli-worktree/state/`，不得写入业务项目仓库。
 - `$worktree-merge` 不得自动 commit；合并成功后必须反向同步到任务 worktree。
+- `$worktree-take-sql` 只用于把任务 worktree 中新增且未合并的 `.sql` 文件提前拿到主项目目录，并从任务 worktree 删除；不自动 commit。
 - 遇到业务冲突、数据库 schema、权限、路由、授权、配置、状态机冲突，必须停止并让用户决定。
 - 不要自动启动任何项目服务。
 - 先不考虑 Windows 适配，避免引入复杂兼容逻辑。
