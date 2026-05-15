@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-VERSION = 2
+VERSION = 4
 STATE_ROOT = Path.home() / ".codex-cli-worktree" / "state"
 
 
@@ -142,7 +143,7 @@ def load_state(root):
     state_path = ensure_state(root)
     with state_path.open("r", encoding="utf-8") as f:
         state = json.load(f)
-    if state.get("version") == 1 and isinstance(state.get("tasks"), dict):
+    if state.get("version") in (1, 2, 3) and isinstance(state.get("tasks"), dict):
         state["version"] = VERSION
         state.setdefault("preview", None)
         save_state(root, state)
@@ -176,10 +177,6 @@ def main_status(root):
     return run(["git", "status", "--porcelain"], root).stdout.decode(errors="replace").rstrip("\n")
 
 
-def has_staged_changes(status):
-    return any(line and line[0] not in (" ", "?") for line in status.splitlines())
-
-
 def require_clean_main(root):
     status = main_status(root)
     if status:
@@ -206,96 +203,132 @@ def tree_from_worktree(path):
         return text(["git", "write-tree"], path, env=env)
 
 
-def diff_trees(root, old_tree, new_tree):
-    return run(["git", "diff", "--binary", old_tree, new_tree], root).stdout
+def split_z(output):
+    if not output:
+        return []
+    return output.decode(errors="replace").rstrip("\0").split("\0")
 
 
-def changed_files(root, old_tree, new_tree):
-    output = text(["git", "diff", "--name-status", old_tree, new_tree], root)
-    return output or "(无文件变化)"
+def validate_relative_path(path):
+    rel = Path(path)
+    if rel.is_absolute() or not path or ".." in rel.parts:
+        raise WorktreeError(f"检测到不安全的 Git 路径，已停止: {path}")
+    return path
 
 
-def patch_is_empty(patch):
-    return not patch.strip()
-
-
-def save_patch(root, slug, patch):
-    patch_dir = repo_state_dir(root) / "patches"
-    patch_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    patch_path = patch_dir / f"{slug}-{stamp}.patch"
-    patch_path.write_bytes(patch)
-    return patch_path
-
-
-def apply_patch_to_repo(root, target, patch, slug):
-    if patch_is_empty(patch):
-        return "empty"
-
-    patch_path = save_patch(root, slug, patch)
-    direct_check = run(
-        ["git", "apply", "--check", "--whitespace=nowarn", str(patch_path)],
-        target,
-        check=False,
+def task_changes(task_path):
+    conflicted = text(
+        ["git", "diff", "--name-only", "--diff-filter=U", "HEAD", "--"],
+        task_path,
     )
-    if direct_check.returncode == 0:
-        run(["git", "apply", "--whitespace=nowarn", str(patch_path)], target)
-        return "applied"
-
-    three_way_check = run(
-        ["git", "apply", "--3way", "--check", "--whitespace=nowarn", str(patch_path)],
-        target,
-        check=False,
-    )
-    if three_way_check.returncode == 0:
-        run(["git", "apply", "--3way", "--whitespace=nowarn", str(patch_path)], target)
-        return "applied-3way"
-
-    stderr = three_way_check.stderr.decode(errors="replace").strip()
-    raise WorktreeError(
-        "补丁无法自动应用，已停止且未改动目标目录。\n"
-        f"补丁已保存: {patch_path}\n"
-        "请让 Codex 根据补丁和当前文件分析冲突方案后再决定。\n\n"
-        f"{stderr}"
-    )
-
-
-def clear_preview_if_safe(root, state, *, required=False):
-    preview = state.get("preview")
-    if not preview:
-        if required:
-            require_clean_main(root)
-            print("当前没有已记录的 switch 预览状态，主项目目录已是干净状态。")
-        return False
-
-    current_tree = tree_from_worktree(root)
-    preview_tree = preview.get("tree")
-    status = main_status(root)
-    if current_tree != preview_tree:
-        if status:
-            raise WorktreeError(
-                "主项目目录存在未提交改动，但这些改动不等于上一次 switch 记录的预览状态，已停止。\n"
-                "请先手动确认、提交或清理这些改动。\n\n"
-                f"{status}"
-            )
-        state["preview"] = None
-        return False
-    if has_staged_changes(status):
+    if conflicted:
         raise WorktreeError(
-            "主项目目录存在已暂存改动，虽然内容等于 switch 预览状态，但工具不会自动清理已暂存内容。\n"
-            "请先手动提交、取消暂存或清理后再继续。\n\n"
+            "任务 worktree 存在未解决冲突，已停止。\n"
+            "请先在任务目录解决冲突后再切换或合并。\n\n"
+            f"{conflicted}"
+        )
+
+    tokens = split_z(
+        run(
+            ["git", "diff", "--name-status", "-z", "--find-renames", "HEAD", "--"],
+            task_path,
+        ).stdout
+    )
+    changes = []
+    i = 0
+    while i < len(tokens):
+        status = tokens[i]
+        i += 1
+        kind = status[:1]
+        if kind in ("R", "C"):
+            old_path = validate_relative_path(tokens[i])
+            new_path = validate_relative_path(tokens[i + 1])
+            i += 2
+            if kind == "R":
+                changes.append(("D", old_path))
+            changes.append(("A", new_path))
+            continue
+
+        path = validate_relative_path(tokens[i])
+        i += 1
+        if kind == "D":
+            changes.append(("D", path))
+        else:
+            changes.append((kind if kind in ("A", "M", "T") else "M", path))
+
+    for path in split_z(run(["git", "ls-files", "--others", "--exclude-standard", "-z"], task_path).stdout):
+        changes.append(("A", validate_relative_path(path)))
+
+    return changes
+
+
+def format_changes(changes):
+    if not changes:
+        return "(无文件变化)"
+    return "\n".join(f"{status}\t{path}" for status, path in changes)
+
+
+def remove_path(path):
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def copy_path(src_root, dst_root, rel_path):
+    src = src_root / rel_path
+    dst = dst_root / rel_path
+    if not src.exists() and not src.is_symlink():
+        raise WorktreeError(f"任务文件不存在，无法复制: {src}")
+    if dst.exists() or dst.is_symlink():
+        remove_path(dst)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_dir() and not src.is_symlink():
+        shutil.copytree(src, dst, symlinks=True)
+    else:
+        shutil.copy2(src, dst, follow_symlinks=False)
+
+
+def apply_task_files(task_path, target, changes):
+    for status, rel_path in sorted(changes, key=lambda item: item[1], reverse=True):
+        if status == "D":
+            remove_path(target / rel_path)
+    for status, rel_path in changes:
+        if status != "D":
+            copy_path(task_path, target, rel_path)
+
+
+def reset_main_to_head(root):
+    run(["git", "reset", "--hard", "HEAD"], root)
+    run(["git", "clean", "-fd"], root)
+
+
+def reset_main_slot(root, state, *, required=False):
+    preview = state.get("preview")
+    status = main_status(root)
+    if status:
+        current_tree = tree_from_worktree(root)
+        if preview and current_tree == preview.get("tree"):
+            reset_main_to_head(root)
+            state["preview"] = None
+            print("已重置上一轮 switch 预览，主项目目录已恢复到当前提交。")
+            return True
+        raise WorktreeError(
+            "主项目目录存在未提交改动，且不等于已记录的 switch 预览状态，已停止。\n"
+            "请先手动提交、stash 或清理这些改动后再继续。\n\n"
             f"{status}"
         )
 
-    target_tree = head_tree(root)
-    restore_patch = diff_trees(root, current_tree, target_tree)
-    result = apply_patch_to_repo(root, root, restore_patch, "switch-clear")
-    state["preview"] = None
-    if result == "empty":
-        print("已清除 switch 预览记录，主项目目录已是当前 HEAD。")
-    else:
-        print(f"已清除 switch 预览并恢复主项目目录到当前 HEAD。恢复方式: {result}")
-    return True
+    if preview:
+        state["preview"] = None
+        reset_main_to_head(root)
+        print("已清除 switch 预览记录，主项目目录已恢复到当前提交。")
+        return True
+
+    reset_main_to_head(root)
+    if required:
+        print("当前没有已记录的 switch 预览状态，主项目目录已恢复到当前提交。")
+    return False
 
 
 def clear_stale_preview_if_clean(root, state):
@@ -311,39 +344,38 @@ def sync_one_task(root, state, name):
     if not task_path.exists():
         raise WorktreeError(f"任务目录不存在: {task_path}")
 
-    base_tree = task["base_tree"]
-    task_tree = tree_from_worktree(task_path)
-    main_tree = head_tree(root)
+    main_commit = text(["git", "rev-parse", "HEAD"], root)
+    task_head = text(["git", "rev-parse", "HEAD"], task_path)
 
-    if task_tree == main_tree:
-        task["base_tree"] = main_tree
+    if task_head == main_commit:
         task["status"] = "active"
         task["last_synced_at"] = now()
         task["updated_at"] = now()
-        return "already-current"
+        return "已包含主项目最新提交"
 
-    main_update_patch = diff_trees(root, base_tree, main_tree)
-    if patch_is_empty(main_update_patch):
-        task["base_tree"] = main_tree
-        task["status"] = "active"
-        task["last_synced_at"] = now()
-        task["updated_at"] = now()
-        return "empty"
+    result = run(["git", "merge", "--ff-only", main_commit], task_path, check=False)
+    if result.returncode != 0:
+        stdout = result.stdout.decode(errors="replace").strip()
+        stderr = result.stderr.decode(errors="replace").strip()
+        raise WorktreeError(
+            "任务目录无法直接拉取主项目最新提交，已停止。\n"
+            "请先在任务目录手动处理主线更新、提交关系或冲突后再继续。\n\n"
+            f"stdout:\n{stdout}\n"
+            f"stderr:\n{stderr}"
+        )
 
-    result = apply_patch_to_repo(root, task_path, main_update_patch, f"{task['slug']}-sync")
-    task["base_tree"] = main_tree
     task["status"] = "active"
     task["last_synced_at"] = now()
     task["updated_at"] = now()
-    return result
+    return "已带入主项目最新提交"
 
 
 def sync_conflict_advice(name):
     return (
         f"任务同步遇到冲突，已停止: {name}\n"
         "建议处理方式:\n"
-        f"1. 先在任务 worktree 中继续处理该任务，完成后执行 $worktree-merge {name}。\n"
-        "2. 让 Codex 根据保存的补丁和冲突文件，手动把主线变化合入任务 worktree。\n"
+        "1. 先在任务 worktree 中手动提交、stash 或处理会被主线覆盖的改动，再重新同步。\n"
+        "2. 让 Codex 在任务 worktree 中手动把主项目最新提交合入任务分支。\n"
         "3. 如果该任务不再需要，清理任务后从最新主线重新创建。"
     )
 
@@ -377,13 +409,11 @@ def cmd_new(args):
 
     base_dir.mkdir(parents=True, exist_ok=True)
     run(["git", "worktree", "add", "-b", branch, str(worktree), "HEAD"], root)
-    base_tree = head_tree(root)
     state["tasks"][name] = {
         "name": name,
         "slug": slug,
         "branch": branch,
         "worktree": str(worktree),
-        "base_tree": base_tree,
         "status": "active",
         "created_at": now(),
         "updated_at": now(),
@@ -402,7 +432,8 @@ def cmd_new(args):
 def cmd_list(_args):
     root, _current_root, _task_name, _task = repo_context()
     state = load_state(root)
-    if clear_stale_preview_if_clean(root, state):
+    if state.get("preview") and not main_status(root):
+        state["preview"] = None
         save_state(root, state)
     tasks = state["tasks"]
     print(f"仓库: {root}")
@@ -418,9 +449,7 @@ def cmd_list(_args):
         exists = "存在" if path.exists() else "缺失"
         dirty = "未知"
         if path.exists():
-            base_tree = task.get("base_tree")
-            current_tree = tree_from_worktree(path)
-            dirty = "有未合并改动" if not patch_is_empty(diff_trees(root, base_tree, current_tree)) else "干净"
+            dirty = "有未合并改动" if task_changes(path) else "干净"
         print(f"- {name}")
         print(f"  状态: {task.get('status', 'unknown')} / {dirty} / 目录{exists}")
         print(f"  分支: {task['branch']}")
@@ -431,40 +460,30 @@ def cmd_list(_args):
 def cmd_merge(args):
     root = require_main_project_dir()
     state = load_state(root)
-    preview_cleared = clear_preview_if_safe(root, state)
-    require_clean_main(root)
     task = get_task(state, args.name.strip())
     task_path = Path(task["worktree"])
     if not task_path.exists():
         raise WorktreeError(f"任务目录不存在: {task_path}")
 
-    base_tree = task["base_tree"]
-    task_tree = tree_from_worktree(task_path)
-    task_patch = diff_trees(root, base_tree, task_tree)
-    if patch_is_empty(task_patch):
-        if preview_cleared:
-            save_state(root, state)
+    changes = task_changes(task_path)
+    reset_main_slot(root, state)
+    if not changes:
+        state["preview"] = None
+        save_state(root, state)
         print(f"任务没有待合并改动: {task['name']}")
         return
 
     print("待合并文件:")
-    print(changed_files(root, base_tree, task_tree))
-    result = apply_patch_to_repo(root, root, task_patch, task["slug"])
-    main_tree = tree_from_worktree(root)
+    print(format_changes(changes))
+    apply_task_files(task_path, root, changes)
 
-    sync_patch = diff_trees(root, task_tree, main_tree)
-    sync_result = apply_patch_to_repo(root, task_path, sync_patch, f"{task['slug']}-sync")
-
-    task["base_tree"] = main_tree
     task["status"] = "merged-to-main-pending-user-commit"
     task["last_merged_at"] = now()
-    task["last_synced_at"] = now()
     task["updated_at"] = now()
     state["preview"] = None
     save_state(root, state)
 
-    print(f"已合并到主项目目录，主项目未自动 commit。应用方式: {result}")
-    print(f"已反向同步到任务 worktree。同步方式: {sync_result}")
+    print("已把任务改动复制到主项目目录，主项目未自动 commit。")
     print("请在主项目目录手动重启服务验证；验证通过后由你手动 commit。")
 
 
@@ -501,7 +520,7 @@ def cmd_sync(args):
             for name, message in failed:
                 print(f"- {name}")
                 print(message)
-                if "补丁无法自动应用" in message:
+                if "无法直接拉取主项目最新提交" in message:
                     print(sync_conflict_advice(name))
         return
 
@@ -511,11 +530,11 @@ def cmd_sync(args):
         result = sync_one_task(root, state, name)
     except WorktreeError as exc:
         message = str(exc)
-        if "补丁无法自动应用" in message:
+        if "无法直接拉取主项目最新提交" in message:
             raise WorktreeError(f"{message}\n\n{sync_conflict_advice(name)}")
         raise
     save_state(root, state)
-    print(f"已把主项目当前文件同步到任务 worktree。同步方式: {result}")
+    print(result)
 
 
 def sh_quote(value):
@@ -529,44 +548,40 @@ def cmd_switch(args):
     if args.clear:
         if args.name:
             raise WorktreeError("$worktree-switch --clear 不能同时指定任务名。")
-        clear_preview_if_safe(root, state, required=True)
+        reset_main_slot(root, state, required=True)
         save_state(root, state)
         return
 
     name = (args.name or "").strip()
     validate_task_name(name)
-    clear_preview_if_safe(root, state)
-    require_clean_main(root)
-
     task = get_task(state, name)
     task_path = Path(task["worktree"])
     if not task_path.exists():
         raise WorktreeError(f"任务目录不存在: {task_path}")
 
-    base_tree = task["base_tree"]
-    task_tree = tree_from_worktree(task_path)
-    task_patch = diff_trees(root, base_tree, task_tree)
-    if patch_is_empty(task_patch):
+    changes = task_changes(task_path)
+    reset_main_slot(root, state)
+    if not changes:
         state["preview"] = None
         save_state(root, state)
         print(f"任务没有可预览改动: {task['name']}")
         return
 
     print("待预览文件:")
-    print(changed_files(root, base_tree, task_tree))
-    result = apply_patch_to_repo(root, root, task_patch, f"{task['slug']}-switch")
+    print(format_changes(changes))
+    apply_task_files(task_path, root, changes)
     preview_tree = tree_from_worktree(root)
     state["preview"] = {
         "task": task["name"],
         "slug": task["slug"],
         "head": text(["git", "rev-parse", "HEAD"], root),
         "tree": preview_tree,
+        "files": [path for _status, path in changes],
         "switched_at": now(),
     }
     save_state(root, state)
 
     print(f"已切换主项目目录到任务预览状态: {task['name']}")
-    print(f"应用方式: {result}")
     print("该操作只用于临时验证；不会更新任务基线、不会反向同步、不会自动 commit。")
 
 
@@ -625,13 +640,11 @@ def cmd_end(args):
     task = get_task(state, name)
     task_path = Path(task["worktree"])
     if task_path.exists():
-        base_tree = task["base_tree"]
-        current_tree = tree_from_worktree(task_path)
-        delta = diff_trees(root, base_tree, current_tree)
-        if not patch_is_empty(delta) and not args.force:
+        changes = task_changes(task_path)
+        if changes and not args.force:
             print("任务 worktree 还有未合并改动，已停止清理。")
             print("未合并文件:")
-            print(changed_files(root, base_tree, current_tree))
+            print(format_changes(changes))
             print("请先执行 $worktree-merge，或确认放弃后让 Codex 使用 --force。")
             return
         run(["git", "worktree", "remove", "--force", str(task_path)], root)
