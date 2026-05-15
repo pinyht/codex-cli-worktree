@@ -17,7 +17,7 @@ This project installs a set of Codex Skills and a Python helper script to make m
 - Push task SQL migrations into mainline in one command, sync all tasks, and switch back to that task preview.
 - List, inspect the current window, clear previews, sync, and clean up worktree tasks.
 - Inspect the current Git worktree status from inside Codex CLI, making uncommitted files and SQL paths easy to see.
-- The generated continue-development command tries to set the terminal title to the task name, making multiple Codex CLI windows easier to distinguish.
+- New task worktree directory names include the full task name, making multiple Codex CLI windows easier to distinguish.
 - Store per-repository task state under `~/.codex-cli-worktree/state/`.
 - Install Codex Skills into `~/.agents/skills/codex-cli-worktree/`.
 - Idempotently update a managed rules block in `~/.codex/AGENTS.md`.
@@ -85,7 +85,7 @@ $worktree-push-sql fix login redirect migrations/18.sql
 
 `$worktree-*` is a Codex Skill mention, not a shell command and not the old `/worktree-*` slash command. Type `$worktree-` and use Codex completion to choose a skill.
 
-`<task name>` is the human-readable task name you choose, for example `fix login redirect`. Task names may contain spaces, but must not start with `-`, so they cannot conflict with options such as `--all` and `--clear`.
+`<task name>` is the human-readable task name you choose, for example `fix-login`. Task names may contain Chinese characters, English letters, digits, `-`, `_`, and `.`, but must be a single argument: no spaces, tabs, newlines, path separators, or path-invalid characters such as `: * ? " < > |`. Task names must not start or end with `-`, so they cannot conflict with options such as `--all` and the generated worktree directory remains tidy.
 
 ## Uninstall
 
@@ -144,7 +144,7 @@ Suppose the task is named `fix login redirect`:
 
 If a new session needs to find the task directory, type `$worktree-info fix login redirect` from the main project directory. It only prints task information; it does not switch the current Codex CLI session directory automatically. To continue development, use the printed continue-development command to open a new Codex CLI in the task directory.
 
-The continue-development command printed by `$worktree-new` and `$worktree-info` first tries to set the terminal title to the task name, for example `worktree: fix login redirect`. Terminals, tabs, or multiplexers that support terminal titles show the task name directly; unsupported environments ignore it.
+New task worktree directory names include the full task name, for example `task-channel-config-31a1f97b` or `task-频道配置-31a1f97b`. Git branch names still use ASCII-safe slugs to avoid compatibility issues with non-ASCII branch names.
 
 If you forget which task the current window belongs to, type `$worktree-current`. In a task directory it prints the task name. In the main project directory it prints whether you are in a switch preview, the mainline baseline, or an uncommitted state.
 
@@ -179,7 +179,7 @@ Task state is stored per repository under:
 Worktree directories are created next to the repository:
 
 ```text
-../<repo-name>.worktrees/<task-slug>/
+../<repo-name>.worktrees/task-<task-name>-<hash>/
 ```
 
 State files are stored only on your machine and are not written into the project repository.

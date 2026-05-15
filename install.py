@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 
 
-VERSION = "8"
+VERSION = "10"
 BEGIN = "<!-- codex-worktree-rules:start -->"
 END = "<!-- codex-worktree-rules:end -->"
 SKILL_BUNDLE_NAME = "codex-cli-worktree"
@@ -48,9 +48,8 @@ RULE_BLOCK = f"""{BEGIN}
   - `$worktree-help`：查看命令帮助。
 - `$worktree-new`、`$worktree-switch`、`$worktree-merge`、`$worktree-sync`、`$worktree-take-sql`、`$worktree-push-sql`、`$worktree-end` 必须在主项目目录执行；`$worktree-list`、`$worktree-info`、`$worktree-current`、`$worktree-status` 可在主项目目录或任务 worktree 执行。
 - 主项目目录是可重置的统一调试槽，只用于创建任务、切换预览、合并任务、同步任务、用户手动运行服务验证和用户手动 commit；任务目录用于具体开发和测试。
-- `$worktree-new` 和 `$worktree-info` 输出的继续开发命令会尝试设置终端标题为当前任务名，便于区分多个 Codex CLI 窗口；不支持终端标题的环境会忽略该提示。
 - worktree 命令不得自动启动任何项目服务。
-- 任务名不能以 `-` 开头，避免和 `--all`、`--clear` 等命令选项冲突。
+- 任务名必须是可直接复制到 `$worktree-switch 任务名` 的单个参数，不得包含空格、Tab、换行或路径非法字符，且不能以 `-` 开头或结尾。
 - `$worktree-switch` 只用于预览任务效果；主项目目录干净或等于已记录的 switch 预览时，会自动恢复到当前提交并清理新增文件后复制任务改动；遇到无法确认来源的未提交改动必须停止。
 - `$worktree-merge` 不得自动 commit；执行前主项目目录必须干净或等于已记录的 switch 预览，脚本会先恢复并清理主项目调试槽，再复制任务改动。
 - `$worktree-sync` 执行前主项目目录必须没有未提交改动；同步只把主项目最新提交带到任务目录，无法自动同步或会覆盖任务改动时必须停止，不得强制覆盖任务目录。

@@ -17,7 +17,7 @@ English documentation: [README.en.md](README.en.md)
 - 可一键把任务 SQL 提交并推送到主线，同步所有任务后切回该任务预览。
 - 查看当前窗口任务、恢复预览、同步、清理 worktree 任务。
 - 在 Codex CLI 内查看当前 Git 工作区状态，方便确认未提交文件和 SQL 路径。
-- 任务继续开发命令会尝试设置终端标题为任务名，便于区分多个 Codex CLI 窗口。
+- 新任务 worktree 目录名包含完整任务名，便于区分多个 Codex CLI 窗口。
 - 任务状态按仓库隔离保存到 `~/.codex-cli-worktree/state/`，不写入业务项目仓库。
 - 安装 Codex Skills 到 `~/.agents/skills/codex-cli-worktree/`。
 - 幂等更新 `~/.codex/AGENTS.md` 中的通用规则块。
@@ -85,7 +85,7 @@ $worktree-push-sql 修复登录跳转 migrations/18.sql
 
 `$worktree-*` 是 Codex Skill mention，不是 shell 命令，也不是旧版 `/worktree-*` 斜杠命令。输入 `$worktree-` 后可以用 Codex 的补全选择具体 skill。
 
-任务名可以使用中文或空格，但不能以 `-` 开头，避免和 `--all`、`--clear` 等命令选项冲突。命令中的 `<任务名>` 表示你自己起的任务名称，例如 `修复登录跳转`。
+任务名可以使用中文、英文、数字、`-`、`_`、`.`，但必须是单个参数，不能包含空格、Tab、换行、路径分隔符或 `: * ? " < > |` 等路径非法字符，也不能以 `-` 开头或结尾。这样任务名可以直接复制到 `$worktree-switch 任务名` 等命令里。
 
 ## 卸载
 
@@ -144,7 +144,7 @@ python3 install.py
 
 如果新会话忘记任务目录，可以在主项目目录输入 `$worktree-info 修复登录跳转` 查看。它只负责查询任务信息，不会自动切换当前 Codex CLI 会话目录；如果要继续开发，使用输出的继续开发命令打开任务目录的新 Codex CLI。
 
-`$worktree-new` 和 `$worktree-info` 输出的继续开发命令会先尝试设置终端标题为当前任务名，例如 `worktree: 修复登录跳转`。支持终端标题的终端、多标签窗口或复用器会直接显示任务名；不支持时会自动忽略，不影响 Codex CLI 启动。
+新建任务的 worktree 目录名会包含完整任务名，例如 `task-频道配置-31a1f97b`。Git 分支名仍使用 ASCII 安全格式，避免中文分支名兼容问题。
 
 如果当前窗口忘记自己在哪个任务，可以输入 `$worktree-current`。它在任务目录会显示任务名；在主项目目录会显示当前是 switch 预览状态、主线基线状态，还是存在未提交改动。
 
@@ -179,7 +179,7 @@ $worktree-push-sql 修复登录跳转 migrations/18.sql migrations/19.sql
 任务 worktree 默认创建在仓库旁边：
 
 ```text
-../<repo-name>.worktrees/<task-slug>/
+../<repo-name>.worktrees/task-<任务名>-<hash>/
 ```
 
 状态文件只保存在本机，不会写入业务项目仓库。

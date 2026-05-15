@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-VERSION = 8
+VERSION = 10
 STATE_ROOT = Path.home() / ".codex-cli-worktree" / "state"
 
 
@@ -143,7 +143,7 @@ def load_state(root):
     state_path = ensure_state(root)
     with state_path.open("r", encoding="utf-8") as f:
         state = json.load(f)
-    if state.get("version") in (1, 2, 3, 4, 5, 6, 7) and isinstance(state.get("tasks"), dict):
+    if state.get("version") in (1, 2, 3, 4, 5, 6, 7, 8, 9) and isinstance(state.get("tasks"), dict):
         state["version"] = VERSION
         state.setdefault("preview", None)
         save_state(root, state)
@@ -160,13 +160,18 @@ def save_state(root, state):
     tmp.replace(state_path)
 
 
-def slugify(name):
+def branch_slug(name):
     digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", name).strip("-").lower()
     if not slug:
         slug = "task"
     slug = slug[:40].strip("-") or "task"
     return f"{slug}-{digest}"
+
+
+def worktree_dir_name(name):
+    digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
+    return f"task-{name}-{digest}"
 
 
 def head_tree(root):
@@ -192,6 +197,19 @@ def validate_task_name(name):
         raise WorktreeError("任务名不能为空")
     if name.startswith("-"):
         raise WorktreeError("任务名不能以 '-' 开头，避免和 --all、--clear 等命令选项冲突。")
+    if name.endswith("-"):
+        raise WorktreeError("任务名不能以 '-' 结尾，避免生成的 worktree 目录名出现连续分隔符。")
+    if name in (".", ".."):
+        raise WorktreeError("任务名不能是 '.' 或 '..'。")
+    if len(name) > 80:
+        raise WorktreeError("任务名不能超过 80 个字符。")
+    if any(ch.isspace() for ch in name):
+        raise WorktreeError("任务名不能包含空格、Tab 或换行，确保可直接复制到 $worktree-switch。")
+    invalid = set('/\\:*?"<>|')
+    bad_chars = sorted({ch for ch in name if ch in invalid or ord(ch) < 32})
+    if bad_chars:
+        chars = " ".join(repr(ch) for ch in bad_chars)
+        raise WorktreeError(f"任务名包含不适合作为路径的字符: {chars}")
 
 
 def tree_from_worktree(path):
@@ -403,10 +421,10 @@ def cmd_new(args):
     if name in state["tasks"]:
         raise WorktreeError(f"任务已存在: {name}")
 
-    slug = slugify(name)
+    slug = branch_slug(name)
     repo_name = root.name
     base_dir = root.parent / f"{repo_name}.worktrees"
-    worktree = (base_dir / slug).resolve()
+    worktree = (base_dir / worktree_dir_name(name)).resolve()
     branch = f"worktree/{slug}"
     if worktree.exists():
         raise WorktreeError(f"任务目录已存在: {worktree}")
@@ -432,9 +450,8 @@ def cmd_new(args):
     print(f"分支: {branch}")
     print(f"目录: {worktree}")
     print("继续开发命令:")
-    print(codex_open_command(str(worktree), name))
+    print(f"cd {sh_quote(str(worktree))} && codex")
     print("请在该目录中打开新的 Codex CLI 继续开发；不要启动项目服务。")
-    print("支持终端标题的窗口会显示当前 worktree 任务名。")
 
 
 def cmd_list(_args):
@@ -547,11 +564,6 @@ def cmd_sync(args):
 
 def sh_quote(value):
     return "'" + value.replace("'", "'\"'\"'") + "'"
-
-
-def codex_open_command(worktree, task_name):
-    title = f"worktree: {task_name}"
-    return f"cd {sh_quote(worktree)} && printf '\\033]0;%s\\007' {sh_quote(title)} && codex"
 
 
 def validate_sql_path(path):
@@ -805,9 +817,8 @@ def cmd_info(args):
     print(f"分支: {task['branch']}")
     print(f"目录: {task['worktree']}")
     print("继续开发命令:")
-    print(codex_open_command(task["worktree"], task["name"]))
+    print(f"cd {sh_quote(task['worktree'])} && codex")
     print("请在该目录中打开新的 Codex CLI 继续开发；不要启动项目服务。")
-    print("支持终端标题的窗口会显示当前 worktree 任务名。")
 
 
 def cmd_end(args):

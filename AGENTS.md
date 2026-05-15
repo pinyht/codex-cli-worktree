@@ -38,6 +38,7 @@ python3 install.py
   - `$worktree-list`
   - `$worktree-info 任务名`
   - `$worktree-help`
+- 任务名必须是可直接复制到 `$worktree-switch 任务名` 的单个参数，不得包含空格、Tab、换行或路径非法字符，且不能以 `-` 开头或结尾。
 
 - 卸载时，在本目录执行：
 
