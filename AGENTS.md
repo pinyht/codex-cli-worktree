@@ -25,8 +25,12 @@ python3 install.py
 
 - 安装后重启 Codex CLI，再在任意 Git 项目中使用：
   - `$worktree-new 任务名`
+  - `$worktree-switch 任务名`
+  - `$worktree-switch --clear`
+  - `$worktree-current`
   - `$worktree-merge 任务名`
   - `$worktree-sync 任务名`
+  - `$worktree-sync --all`
   - `$worktree-end 任务名`
   - `$worktree-list`
   - `$worktree-info 任务名`

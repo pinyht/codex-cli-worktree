@@ -3,13 +3,15 @@ import shutil
 from pathlib import Path
 
 
-VERSION = "2"
+VERSION = "3"
 BEGIN = "<!-- codex-worktree-rules:start -->"
 END = "<!-- codex-worktree-rules:end -->"
 SKILL_BUNDLE_NAME = "codex-cli-worktree"
 COMMANDS = [
     "worktree-list",
     "worktree-new",
+    "worktree-switch",
+    "worktree-current",
     "worktree-merge",
     "worktree-sync",
     "worktree-end",
@@ -28,17 +30,24 @@ RULE_BLOCK = f"""{BEGIN}
   - 状态：`~/.codex-cli-worktree/state/`
 - 常用命令：
   - `$worktree-new 任务名`：在主项目目录创建独立 worktree 任务目录和任务分支。
+  - `$worktree-switch 任务名`：把指定任务当前代码临时切换到主项目目录用于验证，不更新任务基线、不自动 commit。
+  - `$worktree-switch --clear`：清除当前 switch 预览，恢复主项目目录到当前 HEAD。
+  - `$worktree-current`：查看当前窗口对应的任务名，或查看主项目目录是否处于 switch 预览/主线基线状态。
   - `$worktree-merge 任务名`：把任务改动合并回主项目目录，不自动 commit，并把合并后的文件反向同步回任务 worktree。
   - `$worktree-sync 任务名`：把主项目当前文件同步到任务 worktree。
+  - `$worktree-sync --all`：把主项目当前文件同步到所有可自动同步的任务 worktree，冲突任务会停止并输出处理建议。
   - `$worktree-end 任务名`：清理任务 worktree、任务分支和本地状态记录。
   - `$worktree-list`：查看所有 worktree 任务。
   - `$worktree-info 任务名`：查看指定任务的状态、分支和任务目录。
   - `$worktree-help`：查看命令帮助。
-- `$worktree-new`、`$worktree-merge`、`$worktree-end` 必须在主项目目录执行；`$worktree-list`、`$worktree-sync`、`$worktree-info` 建议在主项目目录执行。
-- 主项目目录只用于合并、用户手动运行服务验证和用户手动 commit；任务 worktree 目录用于具体开发和测试。
+- `$worktree-new`、`$worktree-switch`、`$worktree-merge`、`$worktree-sync`、`$worktree-end` 必须在主项目目录执行；`$worktree-list`、`$worktree-info`、`$worktree-current` 可在主项目目录或任务 worktree 执行。
+- 主项目目录只用于创建任务、切换预览、合并任务、同步任务、用户手动运行服务验证和用户手动 commit；任务 worktree 目录用于具体开发和测试。
 - worktree 命令不得自动启动任何项目服务。
+- 任务名不能以 `-` 开头，避免和 `--all`、`--clear` 等命令选项冲突。
+- `$worktree-switch` 只用于预览任务效果，每次切换前只会自动清除已记录且未被手动改动的上一次 switch 预览；遇到无法确认来源的未提交改动必须停止。
 - `$worktree-merge` 不得自动 commit，合并成功后必须反向同步到任务 worktree。
 - `$worktree-merge` 遇到无法自动应用的冲突时，必须停止，列出冲突文件和合理解决方案，由用户决定。
+- `$worktree-sync` 执行前主项目目录必须没有未提交改动；同步遇到冲突时必须停止，不得强制覆盖任务 worktree。
 - 遇到业务冲突、数据库 schema、权限、路由、授权、配置、状态机冲突，必须先说明方案并询问用户。
 - worktree 任务状态按仓库隔离保存在本地 `~/.codex-cli-worktree/state/`，不会提交到任何仓库。
 {END}

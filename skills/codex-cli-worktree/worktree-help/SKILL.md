@@ -21,8 +21,12 @@ worktree 并行开发命令：
 $worktree-new <任务名>      创建任务 worktree 和任务分支
 $worktree-list              查看当前仓库的任务列表
 $worktree-info <任务名>     查看任务状态、分支、任务目录和继续开发命令
+$worktree-current           查看当前窗口对应任务，或主目录当前状态
+$worktree-switch <任务名>   临时把任务代码切到主项目目录用于验证
+$worktree-switch --clear    清除 switch 预览，恢复主项目目录到当前 HEAD
 $worktree-merge <任务名>    合并任务改动到主项目，不自动 commit，并反向同步
 $worktree-sync <任务名>     把主项目当前文件同步到任务 worktree
+$worktree-sync --all        把主项目当前文件同步到所有任务 worktree
 $worktree-end <任务名>      清理任务 worktree、任务分支和任务状态
 $worktree-help              查看本帮助
 ```
@@ -32,14 +36,17 @@ $worktree-help              查看本帮助
 1. 在主项目目录执行 `$worktree-new 任务名`。
 2. 按输出的 `cd ... && codex` 命令，在任务目录打开新的 Codex CLI。
 3. 在任务目录开发，不启动长期运行的项目服务。
-4. 回主项目目录执行 `$worktree-merge 任务名`。
-5. 用户手动重启服务或运行验证命令。
-6. 验证通过后用户手动 commit。
-7. 执行 `$worktree-end 任务名` 清理任务。
-8. 如需查找任务目录，执行 `$worktree-info 任务名`。
+4. 需要临时看效果时，回主项目目录执行 `$worktree-switch 任务名`。
+5. 确认任务完成后，回主项目目录执行 `$worktree-merge 任务名`。
+6. 用户手动重启服务或运行验证命令。
+7. 验证通过后用户手动 commit。
+8. 主项目有新提交后，可执行 `$worktree-sync --all` 同步未完成任务。
+9. 执行 `$worktree-end 任务名` 清理任务。
+10. 如需查看当前窗口任务名，执行 `$worktree-current`。
 
 说明：
 
 - 主项目目录用于创建、合并、验证和手动 commit。
 - 任务目录用于具体开发。
+- `$worktree-switch` 只用于临时预览，不更新任务基线、不自动 commit。
 - `$worktree-info` 只查询任务信息，不会自动切换当前 Codex CLI 会话目录。
