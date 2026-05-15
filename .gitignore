@@ -1,4 +1,6 @@
 # Local Codex state
+.agents/
+.codex/
 worktree-state/
 worktrees/
 

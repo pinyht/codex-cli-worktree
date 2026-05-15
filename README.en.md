@@ -13,10 +13,20 @@ This project installs a set of Codex Skills and a Python helper script to make m
 - Create isolated Git worktree task directories.
 - Merge task changes back into the main project directory without auto-committing.
 - Sync the final merged result back into the task worktree, so follow-up work does not continue from stale code.
-- List, resume, sync, and clean up worktree tasks.
+- List, inspect, sync, and clean up worktree tasks.
 - Store per-repository task state under `~/.codex-cli-worktree/state/`.
 - Install Codex Skills into `~/.agents/skills/codex-cli-worktree/`.
 - Idempotently update a managed rules block in `~/.codex/AGENTS.md`.
+
+## Use cases
+
+Use this tool when you want multiple Codex CLI sessions to work in the same Git repository without stepping on each other's files, for example:
+
+- One Codex CLI session changes backend APIs while another fixes frontend UI.
+- You want isolated task directories, but still merge everything back into the main project directory for verification and commit.
+- You want to keep temporary task edits from blocking another session.
+
+The tool does not start services, run long-lived processes, or commit automatically. The main project directory is for creating tasks, merging tasks, manual verification, and manual commits. Task worktree directories are for implementation work.
 
 ## Requirements
 
@@ -54,6 +64,20 @@ and adds or updates:
 
 Restart Codex CLI after installation so the new Skills are loaded.
 
+## How to use
+
+After installing and restarting Codex CLI, type the skill name in the chat input:
+
+```text
+$worktree-list
+$worktree-new fix login redirect
+$worktree-merge fix login redirect
+```
+
+`$worktree-*` is a Codex Skill mention, not a shell command and not the old `/worktree-*` slash command. Type `$worktree-` and use Codex completion to choose a skill.
+
+`<task name>` is the human-readable task name you choose, for example `fix login redirect`.
+
 ## Uninstall
 
 ```bash
@@ -73,60 +97,36 @@ Restart Codex CLI after upgrading.
 
 ## Commands
 
-Run these commands from the main project directory unless noted otherwise.
+Unless noted otherwise, open Codex CLI in the main project directory before using these skills.
 
-```text
-$worktree-new <task name>
-```
-
-Create a new task worktree and task branch.
-
-```text
-$worktree-merge <task name>
-```
-
-Apply task changes to the main project directory without committing, then sync the final merged result back to the task worktree.
-
-```text
-$worktree-sync <task name>
-```
-
-Sync the current main project files back to the task worktree. This stops if the task worktree has unmerged changes.
-
-```text
-$worktree-end <task name>
-```
-
-Remove the task worktree, task branch, and task state. This stops if the task still has unmerged changes.
-
-```text
-$worktree-list
-```
-
-List worktree tasks for the current Git repository.
-
-```text
-$worktree-resume <task name>
-```
-
-Show the task directory and state so a new session can continue the task.
-
-```text
-$worktree-help
-```
-
-Show command help.
+| Input | Where to run | What it does |
+| --- | --- | --- |
+| `$worktree-new <task name>` | Main project directory | Create a new task worktree and task branch. |
+| `$worktree-list` | Main project directory; task directories also work | List worktree tasks for the current Git repository. |
+| `$worktree-info <task name>` | Main project directory; task directories also work | Show the task status, branch, task directory, and a one-line command to continue development. |
+| `$worktree-merge <task name>` | Main project directory | Apply task changes to the main project directory without committing, then sync the final merged result back to the task worktree. |
+| `$worktree-sync <task name>` | Main project directory | Sync the current main project files back to the task worktree. This stops if the task worktree has unmerged changes. |
+| `$worktree-end <task name>` | Main project directory | Remove the task worktree, task branch, and task state. This stops if the task still has unmerged changes. |
+| `$worktree-help` | Any Git project directory | Show command help. |
 
 ## Recommended workflow
 
+Suppose the task is named `fix login redirect`:
+
 1. Open Codex CLI in the main project directory.
-2. Run `$worktree-new <task name>`.
-3. Open a separate Codex CLI session in the generated task directory.
-4. Develop in the task directory. Do not start long-running project services there.
-5. Return to the main project directory and run `$worktree-merge <task name>`.
-6. Manually restart or run the project from the main directory to verify the result.
-7. Commit manually when satisfied.
-8. Run `$worktree-end <task name>` to clean up.
+2. Type `$worktree-new fix login redirect`.
+3. Codex creates a task worktree and prints the task directory.
+4. Open a separate Codex CLI session in that task directory.
+5. Develop in the task directory. Run only necessary short-lived commands there; do not start long-running project services.
+6. When implementation is done, return to Codex CLI in the main project directory.
+7. Type `$worktree-merge fix login redirect`.
+8. After merge succeeds, manually start services or run verification commands from the main project directory.
+9. Commit manually when satisfied.
+10. Type `$worktree-end fix login redirect` to clean up.
+
+If a new session needs to find the task directory, type `$worktree-info fix login redirect` from the main project directory. It only prints task information; it does not switch the current Codex CLI session directory automatically. To continue development, use the printed `cd ... && codex` command to open a new Codex CLI in the task directory.
+
+If the main project directory changed and you need to refresh the task worktree, type `$worktree-sync fix login redirect` from the main project directory. If the task worktree has unmerged changes, the tool stops instead of overwriting task work.
 
 ## State and generated files
 

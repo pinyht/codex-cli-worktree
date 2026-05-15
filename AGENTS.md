@@ -29,7 +29,7 @@ python3 install.py
   - `$worktree-sync 任务名`
   - `$worktree-end 任务名`
   - `$worktree-list`
-  - `$worktree-resume 任务名`
+  - `$worktree-info 任务名`
   - `$worktree-help`
 
 - 卸载时，在本目录执行：

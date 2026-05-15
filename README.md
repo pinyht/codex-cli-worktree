@@ -18,6 +18,16 @@ English documentation: [README.en.md](README.en.md)
 - 安装 Codex Skills 到 `~/.agents/skills/codex-cli-worktree/`。
 - 幂等更新 `~/.codex/AGENTS.md` 中的通用规则块。
 
+## 适用场景
+
+这个工具适合在同一个 Git 仓库里同时推进多个 Codex CLI 任务，例如：
+
+- 一个主任务正在改后端接口，同时另一个 Codex CLI 会话修复前端样式。
+- 你想让多个 Codex CLI 会话互不影响地改代码，但最终都回到主项目目录统一验证和 commit。
+- 你希望任务目录隔离，避免一个会话的临时修改阻塞另一个会话。
+
+它不负责启动服务、运行长期进程或自动 commit。主项目目录只用于创建任务、合并任务、用户手动验证和用户手动 commit；任务 worktree 目录用于具体开发。
+
 ## 要求
 
 - Codex CLI，且支持 Skills。
@@ -54,6 +64,20 @@ scripts/worktree-task.py -> ~/.agents/skills/codex-cli-worktree/scripts/worktree
 
 安装后需要重启 Codex CLI，新的 Skills 才会加载。
 
+## 怎么使用
+
+安装并重启 Codex CLI 后，在聊天输入框里直接输入 skill 名称即可，例如：
+
+```text
+$worktree-list
+$worktree-new 修复登录跳转
+$worktree-merge 修复登录跳转
+```
+
+`$worktree-*` 是 Codex Skill mention，不是 shell 命令，也不是旧版 `/worktree-*` 斜杠命令。输入 `$worktree-` 后可以用 Codex 的补全选择具体 skill。
+
+任务名可以使用中文或空格。命令中的 `<任务名>` 表示你自己起的任务名称，例如 `修复登录跳转`。
+
 ## 卸载
 
 ```bash
@@ -71,62 +95,38 @@ python3 install.py
 
 升级后同样需要重启 Codex CLI。
 
-## 命令
+## 命令说明
 
-建议在主项目目录执行这些命令。
+除特别说明外，建议在主项目目录打开 Codex CLI 后输入这些 skill。
 
-```text
-$worktree-new <任务名>
-```
-
-创建新的任务 worktree 和任务分支。
-
-```text
-$worktree-merge <任务名>
-```
-
-把任务改动应用到主项目目录，不自动 commit，并把合并后的最终结果同步回任务 worktree。
-
-```text
-$worktree-sync <任务名>
-```
-
-把主项目当前文件同步回任务 worktree。如果任务 worktree 有未合并改动，会停止。
-
-```text
-$worktree-end <任务名>
-```
-
-清理任务 worktree、任务分支和任务状态。如果任务仍有未合并改动，会停止。
-
-```text
-$worktree-list
-```
-
-查看当前 Git 仓库的 worktree 任务。
-
-```text
-$worktree-resume <任务名>
-```
-
-输出任务目录和状态，方便新会话继续处理。
-
-```text
-$worktree-help
-```
-
-查看命令帮助。
+| 输入 | 执行位置 | 作用 |
+| --- | --- | --- |
+| `$worktree-new <任务名>` | 主项目目录 | 创建新的任务 worktree 和任务分支。 |
+| `$worktree-list` | 主项目目录，任务目录也可 | 查看当前 Git 仓库的 worktree 任务。 |
+| `$worktree-info <任务名>` | 主项目目录，任务目录也可 | 查看指定任务的状态、分支和任务目录，并输出一行继续开发命令。 |
+| `$worktree-merge <任务名>` | 主项目目录 | 把任务改动应用到主项目目录，不自动 commit，并把合并后的最终结果同步回任务 worktree。 |
+| `$worktree-sync <任务名>` | 主项目目录 | 把主项目当前文件同步回任务 worktree。如果任务 worktree 有未合并改动，会停止。 |
+| `$worktree-end <任务名>` | 主项目目录 | 清理任务 worktree、任务分支和任务状态。如果任务仍有未合并改动，会停止。 |
+| `$worktree-help` | 任意 Git 项目目录 | 查看命令帮助。 |
 
 ## 推荐流程
 
+假设你要做一个任务叫 `修复登录跳转`：
+
 1. 在主项目目录打开 Codex CLI。
-2. 执行 `$worktree-new <任务名>`。
-3. 在生成的任务目录里打开新的 Codex CLI。
-4. 在任务目录开发，不启动长期运行的项目服务。
-5. 回到主项目目录执行 `$worktree-merge <任务名>`。
-6. 在主项目目录手动重启或运行服务验证效果。
-7. 验证通过后手动 commit。
-8. 执行 `$worktree-end <任务名>` 清理任务。
+2. 输入 `$worktree-new 修复登录跳转`。
+3. Codex 会创建一个任务 worktree，并输出任务目录。
+4. 在输出的任务目录里打开新的 Codex CLI。
+5. 在任务目录开发、改文件、跑必要的短命令；不要在任务目录启动长期运行的项目服务。
+6. 开发完成后，回到主项目目录的 Codex CLI。
+7. 输入 `$worktree-merge 修复登录跳转`。
+8. 合并成功后，在主项目目录手动启动服务或运行验证命令。
+9. 验证通过后，由你手动 `git commit`。
+10. 输入 `$worktree-end 修复登录跳转` 清理任务。
+
+如果新会话忘记任务目录，可以在主项目目录输入 `$worktree-info 修复登录跳转` 查看。它只负责查询任务信息，不会自动切换当前 Codex CLI 会话目录；如果要继续开发，使用输出的 `cd ... && codex` 命令打开任务目录的新 Codex CLI。
+
+如果主项目目录有新的代码变化，需要同步给任务目录，可以在主项目目录输入 `$worktree-sync 修复登录跳转`。如果任务目录还有未合并改动，工具会停止，避免覆盖任务成果。
 
 ## 状态和生成文件
 

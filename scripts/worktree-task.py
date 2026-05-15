@@ -229,6 +229,8 @@ def cmd_new(args):
     print(f"已创建 worktree 任务: {name}")
     print(f"分支: {branch}")
     print(f"目录: {worktree}")
+    print("继续开发命令:")
+    print(f"cd {sh_quote(str(worktree))} && codex")
     print("请在该目录中打开新的 Codex CLI 继续开发；不要启动项目服务。")
 
 
@@ -321,7 +323,11 @@ def cmd_sync(args):
     print(f"已把主项目当前文件同步到任务 worktree。同步方式: {result}")
 
 
-def cmd_resume(args):
+def sh_quote(value):
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def cmd_info(args):
     root = repo_root()
     state = load_state(root)
     task = get_task(state, args.name.strip())
@@ -329,7 +335,9 @@ def cmd_resume(args):
     print(f"状态: {task.get('status', 'unknown')}")
     print(f"分支: {task['branch']}")
     print(f"目录: {task['worktree']}")
-    print("请后续所有开发命令都在该任务目录执行；不要启动项目服务。")
+    print("继续开发命令:")
+    print(f"cd {sh_quote(task['worktree'])} && codex")
+    print("请在该目录中打开新的 Codex CLI 继续开发；不要启动项目服务。")
 
 
 def cmd_end(args):
@@ -367,7 +375,7 @@ def cmd_help(_args):
   worktree-task.py sync <任务名>      把主项目当前文件同步到任务 worktree
   worktree-task.py end <任务名>       清理任务 worktree 和分支
   worktree-task.py list               查看任务列表
-  worktree-task.py resume <任务名>    输出任务目录和状态
+  worktree-task.py info <任务名>      查看任务状态、分支和任务目录
 
 推荐从主项目目录执行。主项目目录用于合并、验证和手动 commit；任务目录用于开发。
 任务状态按仓库隔离保存在 ~/.codex-cli-worktree/state/。"""
@@ -399,9 +407,9 @@ def build_parser():
     p = sub.add_parser("list")
     p.set_defaults(func=cmd_list)
 
-    p = sub.add_parser("resume")
+    p = sub.add_parser("info")
     p.add_argument("name")
-    p.set_defaults(func=cmd_resume)
+    p.set_defaults(func=cmd_info)
 
     p = sub.add_parser("help")
     p.set_defaults(func=cmd_help)

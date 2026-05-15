@@ -13,7 +13,7 @@ COMMANDS = [
     "worktree-merge",
     "worktree-sync",
     "worktree-end",
-    "worktree-resume",
+    "worktree-info",
     "worktree-help",
 ]
 
@@ -32,9 +32,9 @@ RULE_BLOCK = f"""{BEGIN}
   - `$worktree-sync 任务名`：把主项目当前文件同步到任务 worktree。
   - `$worktree-end 任务名`：清理任务 worktree、任务分支和本地状态记录。
   - `$worktree-list`：查看所有 worktree 任务。
-  - `$worktree-resume 任务名`：新会话继续已有任务。
+  - `$worktree-info 任务名`：查看指定任务的状态、分支和任务目录。
   - `$worktree-help`：查看命令帮助。
-- `$worktree-new`、`$worktree-merge`、`$worktree-end` 必须在主项目目录执行；`$worktree-list`、`$worktree-sync`、`$worktree-resume` 建议在主项目目录执行。
+- `$worktree-new`、`$worktree-merge`、`$worktree-end` 必须在主项目目录执行；`$worktree-list`、`$worktree-sync`、`$worktree-info` 建议在主项目目录执行。
 - 主项目目录只用于合并、用户手动运行服务验证和用户手动 commit；任务 worktree 目录用于具体开发和测试。
 - worktree 命令不得自动启动任何项目服务。
 - `$worktree-merge` 不得自动 commit，合并成功后必须反向同步到任务 worktree。
