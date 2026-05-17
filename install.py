@@ -43,6 +43,7 @@ RULE_BLOCK = f"""{BEGIN}
   - `$worktree-take-sql 任务名 SQL文件...`：把任务 worktree 中新增的 SQL 文件拿到主项目目录，并从任务 worktree 删除，便于主目录先 review、commit 再同步回任务。
   - `$worktree-push-sql 任务名 SQL文件...`：把任务 worktree 中新增的 SQL 文件拿到主项目目录并删除任务副本，自动 add、commit、push，再把本次 SQL 文件同步到各任务并切换到该任务预览。
   - `$worktree-end 任务名`：清理任务 worktree、任务分支和本地状态记录。
+  - `$worktree-end 任务名 --force`：强制清理任务；仅在确认任务 worktree 剩余差异可以放弃时使用。
   - `$worktree-list`：查看所有 worktree 任务。
   - `$worktree-info 任务名`：查看指定任务的状态、分支和任务目录。
   - `$worktree-help`：查看命令帮助。
@@ -55,7 +56,7 @@ RULE_BLOCK = f"""{BEGIN}
 - `$worktree-sync` 执行前主项目目录必须没有未提交改动；同步只把主项目最新提交带到任务目录，无法自动同步或会覆盖任务改动时必须停止，不得强制覆盖任务目录。
 - `$worktree-take-sql` 只支持 `.sql` 文件，一次可指定多个；执行前主项目目录必须干净或等于已记录的 switch 预览，执行时只拿取任务 worktree 中新增且未合并的 SQL 文件，复制到主项目目录后删除任务 worktree 内对应文件，不自动 commit。
 - `$worktree-push-sql` 只支持 `.sql` 文件，一次可指定多个；执行前主项目目录必须干净或等于已记录的 switch 预览，执行后会自动提交、推送，只把本次 SQL 文件同步到各任务并切换到该任务预览；遇到同路径 SQL 内容不一致时必须停止；提交信息格式为 `add SQL文件 SQL文件`。
-- `$worktree-end` 清理前会检查任务 worktree 改动；如果这些改动已包含在主项目当前提交中，可以直接清理，否则必须停止。
+- `$worktree-end` 清理前会检查任务 worktree 改动；如果这些改动已包含在主项目当前提交中，可以直接清理，否则必须停止。`$worktree-end 任务名 --force` 会跳过剩余改动检查并删除任务目录、任务分支和本地状态；仅在用户明确确认任务 worktree 剩余差异可以放弃时使用，不得用来替代 merge 或 review。
 - 遇到业务冲突、数据库 schema、权限、路由、授权、配置、状态机冲突，必须先说明方案并询问用户。
 - worktree 任务状态按仓库隔离保存在本地 `~/.codex-cli-worktree/state/`，不会提交到任何仓库。
 {END}

@@ -35,6 +35,7 @@ python3 install.py
   - `$worktree-take-sql 任务名 SQL文件...`
   - `$worktree-push-sql 任务名 SQL文件...`
   - `$worktree-end 任务名`
+  - `$worktree-end 任务名 --force`
   - `$worktree-list`
   - `$worktree-info 任务名`
   - `$worktree-help`
@@ -57,6 +58,7 @@ python3 uninstall.py
 - `$worktree-take-sql` 只用于把任务 worktree 中新增且未合并的 `.sql` 文件提前拿到主项目目录，并从任务 worktree 删除；不自动 commit。
 - `$worktree-push-sql` 用于一键把任务 worktree 中新增且未合并的 `.sql` 文件提前提交到主线：拿到主项目目录、删除任务副本、自动 add/commit/push、只把本次 SQL 文件同步到各任务，并切换到该任务预览。
 - `$worktree-status` 只查看当前窗口所在 Git 仓库的 `git status --short --branch --untracked-files=all`，不修改任何文件。
+- `$worktree-end 任务名 --force` 会跳过任务 worktree 剩余改动检查并删除任务目录、任务分支和本地状态；仅在用户明确确认任务 worktree 剩余差异可以放弃时使用，不得用来替代 merge 或 review。
 - 遇到业务冲突、数据库 schema、权限、路由、授权、配置、状态机冲突，必须停止并让用户决定。
 - 不要自动启动任何项目服务。
 - 先不考虑 Windows 适配，避免引入复杂兼容逻辑。

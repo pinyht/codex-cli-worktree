@@ -123,6 +123,7 @@ python3 install.py
 | `$worktree-take-sql <任务名> <sql...>` | 主项目目录 | 把任务 worktree 中新增的 `.sql` 文件拿到主项目目录，并从任务 worktree 删除；支持一次指定多个 SQL，不自动 commit。 |
 | `$worktree-push-sql <任务名> <sql...>` | 主项目目录 | 把任务新增 `.sql` 文件拿到主项目目录并删除任务副本，自动 add/commit/push，把本次 SQL 文件同步到各任务，然后切换到该任务预览。 |
 | `$worktree-end <任务名>` | 主项目目录 | 清理任务 worktree、任务分支和任务状态。如果任务仍有未合并改动，会停止。 |
+| `$worktree-end <任务名> --force` | 主项目目录 | 强制清理任务。仅在你确认任务 worktree 剩余差异可以放弃时使用。 |
 | `$worktree-help` | 任意 Git 项目目录 | 查看命令帮助。 |
 
 ## 推荐流程
@@ -141,7 +142,7 @@ python3 install.py
 10. 合并成功或冲突处理完成后，在主项目目录手动启动服务或运行验证命令。
 11. 验证通过后，由你手动 `git commit`。
 12. 主项目有新提交后，可输入 `$worktree-sync --all` 把最新提交带到其他任务目录；有冲突或可能覆盖任务改动的任务会停止并输出处理建议。
-13. 输入 `$worktree-end 修复登录跳转` 清理任务。
+13. 输入 `$worktree-end 修复登录跳转` 清理任务。如果冲突后做过语义合并，主项目已经提交且工作区干净，但 end 仍提示任务 worktree 有未合并改动，需要先核对差异；确认任务目录里的剩余原始差异可以放弃后，才明确要求 Codex 使用 `$worktree-end 修复登录跳转 --force`。
 
 如果新会话忘记任务目录，可以在主项目目录输入 `$worktree-info 修复登录跳转` 查看。它只负责查询任务信息，不会自动切换当前 Codex CLI 会话目录；如果要继续开发，使用输出的继续开发命令打开任务目录的新 Codex CLI。
 
@@ -196,6 +197,7 @@ $worktree-push-sql 修复登录跳转 migrations/18.sql migrations/19.sql
 - 主项目目录有无法确认来源的未提交改动时，不执行 switch/merge/sync/take-sql/push-sql。
 - sync 只负责把主项目最新提交带到任务目录；遇到冲突或可能覆盖任务成果时停止，不提供强制覆盖参数。
 - 任务 worktree 有未合并改动时，不执行 end；如果这些改动已包含在主项目当前提交中，可以直接清理。
+- `$worktree-end <任务名> --force` 会跳过任务 worktree 剩余改动检查并删除任务目录、任务分支和本地状态。它适用于你已经确认最终结果已在主项目提交中，且任务 worktree 里的剩余差异只是冲突语义合并后的原始差异或不再需要的改动；不要用它代替 merge 或 review。
 - 遇到数据库 schema、路由、权限、授权、配置、状态机等语义冲突时，Codex 应停止并让用户决定。
 - 不自动启动项目服务。
 

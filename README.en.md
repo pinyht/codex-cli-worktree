@@ -123,6 +123,7 @@ Unless noted otherwise, open Codex CLI in the main project directory before usin
 | `$worktree-take-sql <task name> <sql...>` | Main project directory | Take newly added `.sql` files from a task worktree into the main project directory and delete them from the task worktree. Multiple SQL files are supported. It does not commit. |
 | `$worktree-push-sql <task name> <sql...>` | Main project directory | Take newly added `.sql` files from a task worktree, delete the task copies, auto add/commit/push, sync those SQL files to all tasks, then switch to that task preview. |
 | `$worktree-end <task name>` | Main project directory | Remove the task worktree, task branch, and task state. This stops if the task still has unmerged changes. |
+| `$worktree-end <task name> --force` | Main project directory | Force cleanup. Use only after you confirm the task worktree's remaining differences can be discarded. |
 | `$worktree-help` | Any Git project directory | Show command help. |
 
 ## Recommended workflow
@@ -141,7 +142,7 @@ Suppose the task is named `fix login redirect`:
 10. After merge succeeds or conflict handling is complete, manually start services or run verification commands from the main project directory.
 11. Commit manually when satisfied.
 12. After the main project has a new commit, type `$worktree-sync --all` to bring that commit into other task directories. Tasks with conflicts or changes that might be overwritten stop and print advice.
-13. Type `$worktree-end fix login redirect` to clean up.
+13. Type `$worktree-end fix login redirect` to clean up. If a conflict was resolved through semantic merging and the main project has already been committed with a clean worktree, but end still reports unmerged task changes, inspect the remaining differences first. Only after confirming the task worktree's original leftover differences can be discarded should you explicitly ask Codex to use `$worktree-end fix login redirect --force`.
 
 If a new session needs to find the task directory, type `$worktree-info fix login redirect` from the main project directory. It only prints task information; it does not switch the current Codex CLI session directory automatically. To continue development, use the printed continue-development command to open a new Codex CLI in the task directory.
 
@@ -196,6 +197,7 @@ State files are stored only on your machine and are not written into the project
 - Unknown uncommitted changes in the main project directory stop switch/merge/sync/take-sql/push-sql.
 - Sync only brings the main project's latest commit into task directories. It stops on conflicts or when it might overwrite task work, and has no force-overwrite option.
 - The tool refuses to end a task when the task worktree has unmerged changes; if those changes are already contained in the current main project commit, cleanup is allowed.
+- `$worktree-end <task name> --force` skips the remaining-change check and deletes the task worktree, task branch, and local state. Use it only when you have confirmed that the final result is already committed in the main project and the task worktree's remaining differences are just original leftovers from semantic conflict resolution or no longer needed work. Do not use it as a substitute for merge or review.
 - Codex should stop and ask before resolving semantic conflicts such as database schemas, routing, permissions, authorization, configuration, or state machines.
 - The tool does not start project services.
 
