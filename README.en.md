@@ -12,7 +12,7 @@ This project installs a set of Codex Skills and a Python helper script to make m
 
 - Create isolated Git worktree task directories.
 - Restore the main project directory to a clean state, then copy a task's changes into it for preview without contaminating other tasks.
-- Restore the main project directory to a clean state, then three-way merge task changes back into it without auto-committing; when conflicts occur, Codex analyzes the conflict context and the full merge change set, then proposes semantic AI-assisted fixes.
+- Restore the main project directory to a clean state, then three-way merge task changes back into it without auto-committing; when conflicts occur, Codex analyzes the conflict context and the full merge change set, then proposes semantic AI-assisted fixes. When merge succeeds, the task worktree is automatically aligned to the mainline so later syncs do not keep replaying old differences.
 - Take newly added SQL migration files from a task into the main project directory so they can be reviewed, committed, and synced back before the rest of the task is merged.
 - Push task SQL migrations into mainline in one command, sync those SQL files to all tasks, and switch back to that task preview.
 - List, inspect the current window, clear previews, sync, and clean up worktree tasks.
@@ -118,8 +118,8 @@ Unless noted otherwise, open Codex CLI in the main project directory before usin
 | `$worktree-switch <task name>` | Main project directory | Restore the main project directory, then copy the task directory's changes into it for preview. It does not sync back or commit. |
 | `$worktree-switch --clear` | Main project directory | Clear the current switch preview, restore the main project directory to the current commit, and remove preview-created files. |
 | `$worktree-merge <task name>` | Main project directory | Restore the main project directory, then three-way merge the task directory's changes into it without committing; conflicts are then analyzed and guided by Codex. |
-| `$worktree-sync <task name>` | Main project directory | Bring the main project's latest commit into one task directory, similar to pulling mainline in that task directory. It stops on conflicts. |
-| `$worktree-sync --all` | Main project directory | Bring the main project's latest commit into all task directories. Tasks that cannot be updated automatically are stopped and listed in the summary. |
+| `$worktree-sync <task name>` | Main project directory | Bring the main project's latest commit into one task directory, similar to pulling mainline in that task directory. If the task's local changes have already been absorbed by main, the task directory is automatically reset to the mainline baseline. |
+| `$worktree-sync --all` | Main project directory | Bring the main project's latest commit into all task directories. Tasks that cannot be updated automatically are stopped and listed in the summary; tasks whose local changes have already been absorbed by main are automatically aligned. |
 | `$worktree-take-sql <task name> <sql...>` | Main project directory | Take newly added `.sql` files from a task worktree into the main project directory and delete them from the task worktree. Multiple SQL files are supported. It does not commit. |
 | `$worktree-push-sql <task name> <sql...>` | Main project directory | Take newly added `.sql` files from a task worktree, delete the task copies, auto add/commit/push, sync those SQL files to all tasks, then switch to that task preview. |
 | `$worktree-end <task name>` | Main project directory | Remove the task worktree, task branch, and task state. This stops if the task still has unmerged changes. |
@@ -137,11 +137,11 @@ Suppose the task is named `fix login redirect`:
 5. Develop in the task directory. Run only necessary short-lived commands there; do not start long-running project services.
 6. When you need to preview the task, return to the main project directory and type `$worktree-switch fix login redirect`, then manually start services or run verification commands.
 7. To preview another task, type `$worktree-switch another task`; the tool first checks that the main project directory only contains the previous preview, then restores it cleanly and switches tasks.
-8. When implementation is done, return to Codex CLI in the main project directory and type `$worktree-merge fix login redirect`.
+8. When implementation is done, return to Codex CLI in the main project directory and type `$worktree-merge fix login redirect`. When merge succeeds, the task worktree is automatically aligned to the mainline.
 9. If conflicts occur, the tool lists conflicted files and leaves the conflict state in place. Codex then reads the conflicted files, base/main/task versions, and the full merge change set; it also searches related routes, menus, APIs, permissions, config, schema, tests, and docs before proposing semantic AI-assisted fixes. You can also choose all-manual handling.
 10. After merge succeeds or conflict handling is complete, manually start services or run verification commands from the main project directory.
 11. Commit manually when satisfied.
-12. After the main project has a new commit, type `$worktree-sync --all` to bring that commit into other task directories. Tasks with conflicts or changes that might be overwritten stop and print advice.
+12. After the main project has a new commit, type `$worktree-sync --all` to bring that commit into other task directories. Tasks with conflicts or changes that might be overwritten stop and print advice; tasks already absorbed by main are automatically aligned.
 13. Type `$worktree-end fix login redirect` to clean up. If a conflict was resolved through semantic merging and the main project has already been committed with a clean worktree, but end still reports unmerged task changes, inspect the remaining differences first. Only after confirming the task worktree's original leftover differences can be discarded should you explicitly ask Codex to use `$worktree-end fix login redirect --force`.
 
 If a new session needs to find the task directory, type `$worktree-info fix login redirect` from the main project directory. It only prints task information; it does not switch the current Codex CLI session directory automatically. To continue development, use the printed continue-development command to open a new Codex CLI in the task directory.
@@ -152,7 +152,7 @@ If you forget which task the current window belongs to, type `$worktree-current`
 
 To check uncommitted files without leaving Codex CLI, type `$worktree-status`. It prints the current Git repository path and `git status --short --branch --untracked-files=all`; newly generated SQL appears with relative paths, for example `?? migrations/18.sql`.
 
-If the main project directory has a new commit that task directories should receive, type `$worktree-sync fix login redirect` or `$worktree-sync --all` from the main project directory. The main project directory must have no uncommitted changes before sync runs. If updating a task would overwrite task work, the tool stops.
+If the main project directory has a new commit that task directories should receive, type `$worktree-sync fix login redirect` or `$worktree-sync --all` from the main project directory. The main project directory must have no uncommitted changes before sync runs. If the task's local changes have already been absorbed by main, the tool automatically resets the task directory to the mainline baseline. If updating a task would overwrite task work, the tool stops.
 
 If a task generated database migration SQL but the main project directory should control migration order, run this from the main project directory:
 
@@ -191,11 +191,11 @@ State files are stored only on your machine and are not written into the project
 - The tool does not auto-commit.
 - `$worktree-switch` is only a preview operation. It does not update the task baseline or sync anything back to the task worktree.
 - `$worktree-switch` restores the main project directory to the current commit and removes preview-created files before copying task changes when the main project directory is clean or equals the recorded switch preview. Unknown uncommitted changes stop the operation.
-- `$worktree-merge` restores and cleans the main project debug slot before applying task changes with Git three-way merge. It does not auto-commit. When conflicts occur, the script leaves the conflict state in place and prints basic analysis. Codex then reads the conflicted files, base/main/task versions, and the full merge change set; it searches related routes, menus, APIs, permissions, config, schema, tests, and docs before proposing semantic AI-assisted fixes, and edits files only after you choose a plan.
+- `$worktree-merge` restores and cleans the main project debug slot before applying task changes with Git three-way merge. It does not auto-commit. When conflicts occur, the script leaves the conflict state in place and prints basic analysis. Codex then reads the conflicted files, base/main/task versions, and the full merge change set; it searches related routes, menus, APIs, permissions, config, schema, tests, and docs before proposing semantic AI-assisted fixes, and edits files only after you choose a plan. When merge succeeds, the task worktree is automatically aligned to the mainline.
 - `$worktree-take-sql` only handles newly added, unmerged `.sql` files in a task worktree. It copies them into the main project directory, deletes the task copy, and does not auto-commit.
 - `$worktree-push-sql` only handles newly added, unmerged `.sql` files in a task worktree. It auto-commits, pushes, and syncs only those SQL files to task worktrees, with the commit message format `add SQL SQL`.
 - Unknown uncommitted changes in the main project directory stop switch/merge/sync/take-sql/push-sql.
-- Sync only brings the main project's latest commit into task directories. It stops on conflicts or when it might overwrite task work, and has no force-overwrite option.
+- Sync only brings the main project's latest commit into task directories. It stops on conflicts or when it might overwrite task work, and has no force-overwrite option. If the task's local changes have already been absorbed by main, it automatically resets the task directory to the mainline baseline.
 - The tool refuses to end a task when the task worktree has unmerged changes; if those changes are already contained in the current main project commit, cleanup is allowed.
 - `$worktree-end <task name> --force` skips the remaining-change check and deletes the task worktree, task branch, and local state. Use it only when you have confirmed that the final result is already committed in the main project and the task worktree's remaining differences are just original leftovers from semantic conflict resolution or no longer needed work. Do not use it as a substitute for merge or review.
 - Codex should stop and ask before resolving semantic conflicts such as database schemas, routing, permissions, authorization, configuration, or state machines.

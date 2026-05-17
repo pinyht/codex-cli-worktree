@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 
 
-VERSION = "13"
+VERSION = "14"
 BEGIN = "<!-- codex-worktree-rules:start -->"
 END = "<!-- codex-worktree-rules:end -->"
 SKILL_BUNDLE_NAME = "codex-cli-worktree"
@@ -38,8 +38,8 @@ RULE_BLOCK = f"""{BEGIN}
   - `$worktree-current`：查看当前窗口对应的任务名，或查看主项目目录是否处于 switch 预览/主线基线状态。
   - `$worktree-status`：在当前窗口所在 Git 仓库执行 `git status --short --branch --untracked-files=all`，查看未提交文件。
   - `$worktree-merge 任务名`：先把主项目目录恢复到当前提交，再把任务目录里的改动三方合并回主项目目录，不自动 commit。
-  - `$worktree-sync 任务名`：把主项目最新提交带到任务目录，效果类似在任务目录拉取主线。
-  - `$worktree-sync --all`：把主项目最新提交带到所有可同步的任务目录；无法自动同步的任务会停止并输出处理建议。
+  - `$worktree-sync 任务名`：把主项目最新提交带到任务目录，效果类似在任务目录拉取主线；若任务本地改动已被主项目吸收，会自动把任务目录重置对齐到主线。
+  - `$worktree-sync --all`：把主项目最新提交带到所有可同步的任务目录；无法自动同步的任务会停止并输出处理建议；已被主线吸收的任务会自动对齐。
   - `$worktree-take-sql 任务名 SQL文件...`：把任务 worktree 中新增的 SQL 文件拿到主项目目录，并从任务 worktree 删除，便于主目录先 review、commit 再同步回任务。
   - `$worktree-push-sql 任务名 SQL文件...`：把任务 worktree 中新增的 SQL 文件拿到主项目目录并删除任务副本，自动 add、commit、push，再把本次 SQL 文件同步到各任务并切换到该任务预览。
   - `$worktree-end 任务名`：清理任务 worktree、任务分支和本地状态记录。
@@ -53,7 +53,7 @@ RULE_BLOCK = f"""{BEGIN}
 - 任务名必须是可直接复制到 `$worktree-switch 任务名` 的单个参数，不得包含空格、Tab、换行或路径非法字符，且不能以 `-` 开头或结尾。
 - `$worktree-switch` 只用于预览任务效果；主项目目录干净或等于已记录的 switch 预览时，会自动恢复到当前提交并清理新增文件后复制任务改动；遇到无法确认来源的未提交改动必须停止。
 - `$worktree-merge` 不得自动 commit；执行前主项目目录必须干净或等于已记录的 switch 预览，脚本会先恢复并清理主项目调试槽，再把任务改动三方合并到主项目目录；遇到 Git 合并冲突时脚本保留冲突状态并输出基础分析，随后 Codex 必须读取冲突文件、三方版本和本次合并完整改动范围，检索相关路由、菜单、API、权限、配置、schema、测试和文档，给出 AI 语义级整体修复方案供用户选择，用户确认后再修改文件解决冲突。
-- `$worktree-sync` 执行前主项目目录必须没有未提交改动；同步只把主项目最新提交带到任务目录，无法自动同步或会覆盖任务改动时必须停止，不得强制覆盖任务目录。
+- `$worktree-sync` 执行前主项目目录必须没有未提交改动；同步只把主项目最新提交带到任务目录，若任务本地改动已被主项目吸收，可自动把任务目录重置对齐到主线；无法自动同步或会覆盖任务改动时必须停止，不得强制覆盖任务目录。
 - `$worktree-take-sql` 只支持 `.sql` 文件，一次可指定多个；执行前主项目目录必须干净或等于已记录的 switch 预览，执行时只拿取任务 worktree 中新增且未合并的 SQL 文件，复制到主项目目录后删除任务 worktree 内对应文件，不自动 commit。
 - `$worktree-push-sql` 只支持 `.sql` 文件，一次可指定多个；执行前主项目目录必须干净或等于已记录的 switch 预览，执行后会自动提交、推送，只把本次 SQL 文件同步到各任务并切换到该任务预览；遇到同路径 SQL 内容不一致时必须停止；提交信息格式为 `add SQL文件 SQL文件`。
 - `$worktree-end` 清理前会检查任务 worktree 改动；如果这些改动已包含在主项目当前提交中，可以直接清理，否则必须停止。`$worktree-end 任务名 --force` 会跳过剩余改动检查并删除任务目录、任务分支和本地状态；仅在用户明确确认任务 worktree 剩余差异可以放弃时使用，不得用来替代 merge 或 review。

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-VERSION = 13
+VERSION = 14
 STATE_ROOT = Path.home() / ".codex-cli-worktree" / "state"
 
 
@@ -144,7 +144,7 @@ def load_state(root):
     state_path = ensure_state(root)
     with state_path.open("r", encoding="utf-8") as f:
         state = json.load(f)
-    if state.get("version") in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(state.get("tasks"), dict):
+    if state.get("version") in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) and isinstance(state.get("tasks"), dict):
         state["version"] = VERSION
         state.setdefault("preview", None)
         save_state(root, state)
@@ -497,6 +497,11 @@ def reset_main_to_head(root):
     run(["git", "clean", "-fd"], root)
 
 
+def reset_task_to_commit(task_path, commit):
+    run(["git", "reset", "--hard", commit], task_path)
+    run(["git", "clean", "-fd"], task_path)
+
+
 def reset_main_slot(root, state, *, required=False):
     preview = state.get("preview")
     status = main_status(root)
@@ -540,12 +545,29 @@ def sync_one_task(root, state, name):
 
     main_commit = text(["git", "rev-parse", "HEAD"], root)
     task_head = text(["git", "rev-parse", "HEAD"], task_path)
+    main_tree = head_tree(root)
+    task_tree = tree_from_worktree(task_path)
 
     if task_head == main_commit:
         task["status"] = "active"
         task["last_synced_at"] = now()
         task["updated_at"] = now()
         return "已包含主项目最新提交"
+
+    if task_tree == main_tree:
+        reset_task_to_commit(task_path, main_commit)
+        task["status"] = "active"
+        task["last_synced_at"] = now()
+        task["updated_at"] = now()
+        return "任务内容已与主项目一致，已自动对齐到主项目最新提交"
+
+    changes = task_changes(task_path)
+    if changes and task_changes_absorbed_by_main(root, task_path, changes):
+        reset_task_to_commit(task_path, main_commit)
+        task["status"] = "active"
+        task["last_synced_at"] = now()
+        task["updated_at"] = now()
+        return "任务本地改动已被主项目吸收，已自动对齐到主项目最新提交"
 
     result = run(["git", "merge", "--ff-only", main_commit], task_path, check=False)
     if result.returncode != 0:
@@ -685,8 +707,11 @@ def cmd_merge(args):
     print(format_changes(changes))
     apply_task_patch(root, patch)
 
+    reset_task_to_commit(task_path, main_head)
+
     task["status"] = "merged-to-main-pending-user-commit"
     task["last_merged_at"] = now()
+    task["last_synced_at"] = now()
     task["updated_at"] = now()
     save_state(root, state)
 
