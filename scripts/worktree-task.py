@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-VERSION = 10
+VERSION = 12
 STATE_ROOT = Path.home() / ".codex-cli-worktree" / "state"
 
 
@@ -20,7 +20,7 @@ class WorktreeError(Exception):
     pass
 
 
-def run(args, cwd, check=True, env=None):
+def run(args, cwd, check=True, env=None, input_data=None):
     merged_env = os.environ.copy()
     if env:
         merged_env.update(env)
@@ -30,6 +30,7 @@ def run(args, cwd, check=True, env=None):
         env=merged_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        input=input_data,
         check=False,
     )
     if check and proc.returncode != 0:
@@ -143,7 +144,7 @@ def load_state(root):
     state_path = ensure_state(root)
     with state_path.open("r", encoding="utf-8") as f:
         state = json.load(f)
-    if state.get("version") in (1, 2, 3, 4, 5, 6, 7, 8, 9) and isinstance(state.get("tasks"), dict):
+    if state.get("version") in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) and isinstance(state.get("tasks"), dict):
         state["version"] = VERSION
         state.setdefault("preview", None)
         save_state(root, state)
@@ -219,6 +220,68 @@ def tree_from_worktree(path):
         run(["git", "read-tree", "HEAD"], path, env=env)
         run(["git", "add", "-A", "--", "."], path, env=env)
         return text(["git", "write-tree"], path, env=env)
+
+
+def task_worktree_patch(task_path, task_tree):
+    return run(
+        ["git", "diff", "--binary", "--full-index", "HEAD", task_tree, "--"],
+        task_path,
+    ).stdout
+
+
+def unmerged_files(root):
+    return text(["git", "diff", "--name-only", "--diff-filter=U", "--"], root)
+
+
+def apply_task_patch(root, patch):
+    result = run(["git", "apply", "--3way", "-"], root, check=False, input_data=patch)
+    stdout = result.stdout.decode(errors="replace").strip()
+    stderr = result.stderr.decode(errors="replace").strip()
+    if result.returncode == 0:
+        run(["git", "reset", "--"], root)
+        return stdout, stderr
+
+    conflicted = unmerged_files(root)
+    detail_parts = []
+    if stdout:
+        detail_parts.append(f"stdout:\n{stdout}")
+    if stderr:
+        detail_parts.append(f"stderr:\n{stderr}")
+    detail = "\n".join(detail_parts).strip()
+    if conflicted:
+        raise WorktreeError(
+            "任务改动与主项目当前提交存在合并冲突，已停止自动合并。\n"
+            "主项目目录已保留 Git 冲突状态，请在主项目目录手动解决冲突、验证后提交。\n"
+            "如需放弃本次合并，请手动执行 git reset --hard HEAD 和 git clean -fd。\n\n"
+            "冲突文件:\n"
+            f"{conflicted}\n\n"
+            f"{detail}"
+        )
+    raise WorktreeError(
+        "任务改动无法三方合并到主项目目录，已停止。\n"
+        "主项目目录可能保留了部分 Git apply 状态，请先查看 git status 后决定继续解决或手动清理。\n\n"
+        f"{detail}"
+    )
+
+
+def task_changes_absorbed_by_main(root, task_path, changes):
+    if not changes:
+        return True
+    task_tree = tree_from_worktree(task_path)
+    task_head = text(["git", "rev-parse", "HEAD"], task_path)
+    main_head = text(["git", "rev-parse", "HEAD"], root)
+    result = run(
+        ["git", "merge-tree", "--write-tree", "--merge-base", task_head, main_head, task_tree],
+        root,
+        check=False,
+    )
+    if result.returncode != 0:
+        return False
+    lines = result.stdout.decode(errors="replace").strip().splitlines()
+    if not lines:
+        return False
+    merged_tree = lines[0]
+    return merged_tree == head_tree(root)
 
 
 def split_z(output):
@@ -474,7 +537,11 @@ def cmd_list(_args):
         exists = "存在" if path.exists() else "缺失"
         dirty = "未知"
         if path.exists():
-            dirty = "有未合并改动" if task_changes(path) else "干净"
+            changes = task_changes(path)
+            if changes:
+                dirty = "已被主线吸收" if task_changes_absorbed_by_main(root, path, changes) else "有未合并改动"
+            else:
+                dirty = "干净"
         print(f"- {name}")
         print(f"  状态: {task.get('status', 'unknown')} / {dirty} / 目录{exists}")
         print(f"  分支: {task['branch']}")
@@ -491,24 +558,33 @@ def cmd_merge(args):
         raise WorktreeError(f"任务目录不存在: {task_path}")
 
     changes = task_changes(task_path)
-    reset_main_slot(root, state)
     if not changes:
         state["preview"] = None
         save_state(root, state)
         print(f"任务没有待合并改动: {task['name']}")
         return
+    task_tree = tree_from_worktree(task_path)
+    patch = task_worktree_patch(task_path, task_tree)
+    if not patch:
+        state["preview"] = None
+        save_state(root, state)
+        print(f"任务没有待合并改动: {task['name']}")
+        return
+
+    reset_main_slot(root, state)
+    state["preview"] = None
+    save_state(root, state)
 
     print("待合并文件:")
     print(format_changes(changes))
-    apply_task_files(task_path, root, changes)
+    apply_task_patch(root, patch)
 
     task["status"] = "merged-to-main-pending-user-commit"
     task["last_merged_at"] = now()
     task["updated_at"] = now()
-    state["preview"] = None
     save_state(root, state)
 
-    print("已把任务改动复制到主项目目录，主项目未自动 commit。")
+    print("已把任务改动三方合并到主项目目录，主项目未自动 commit。")
     print("请在主项目目录手动重启服务验证；验证通过后由你手动 commit。")
 
 
@@ -668,12 +744,60 @@ def push_current_branch(root):
     run(["git", "push"], root)
 
 
-def sync_all_tasks(root, state):
+def same_file_content(left, right):
+    if left.stat().st_size != right.stat().st_size:
+        return False
+    with left.open("rb") as left_file, right.open("rb") as right_file:
+        while True:
+            left_chunk = left_file.read(1024 * 1024)
+            right_chunk = right_file.read(1024 * 1024)
+            if left_chunk != right_chunk:
+                return False
+            if not left_chunk:
+                return True
+
+
+def sync_sql_files_to_task(root, task, sql_paths):
+    task_path = Path(task["worktree"])
+    if not task_path.exists():
+        raise WorktreeError(f"任务目录不存在: {task_path}")
+
+    copied = []
+    already_present = []
+    for rel_path in sql_paths:
+        src = root / rel_path
+        dst = task_path / rel_path
+        if not src.is_file() or src.is_symlink():
+            raise WorktreeError(f"主项目 SQL 文件不存在或不是普通文件: {rel_path}")
+        if dst.exists() or dst.is_symlink():
+            if dst.is_file() and not dst.is_symlink() and same_file_content(src, dst):
+                already_present.append(rel_path)
+                continue
+            raise WorktreeError(
+                "任务目录已有同路径 SQL，且内容与主线 SQL 不一致，已停止同步。\n"
+                f"文件: {rel_path}"
+            )
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        copied.append(rel_path)
+
+    task["status"] = "active"
+    task["last_sql_synced_at"] = now()
+    task["updated_at"] = now()
+    if copied and already_present:
+        return f"已同步 SQL {len(copied)} 个，已存在 {len(already_present)} 个"
+    if copied:
+        return f"已同步 SQL {len(copied)} 个"
+    return "SQL 已存在"
+
+
+def sync_sql_files_to_tasks(root, state, sql_paths):
     synced = []
     failed = []
     for name in list(state["tasks"].keys()):
         try:
-            result = sync_one_task(root, state, name)
+            task = get_task(state, name)
+            result = sync_sql_files_to_task(root, task, sql_paths)
             save_state(root, state)
             synced.append((name, result))
         except WorktreeError as exc:
@@ -739,18 +863,16 @@ def cmd_push_sql(args):
     push_current_branch(root)
     print("已执行 git push。")
 
-    synced, failed = sync_all_tasks(root, state)
+    synced, failed = sync_sql_files_to_tasks(root, state, taken)
     if synced:
-        print("已同步任务:")
+        print("已向任务同步 SQL:")
         for task_name, result in synced:
             print(f"- {task_name}: {result}")
     if failed:
-        print("以下任务同步被阻止:")
+        print("以下任务 SQL 同步被阻止:")
         for task_name, message_text in failed:
             print(f"- {task_name}")
             print(message_text)
-            if "无法直接拉取主项目最新提交" in message_text:
-                print(sync_conflict_advice(task_name))
         if any(task_name == name for task_name, _message in failed):
             raise WorktreeError("当前 SQL 对应任务同步失败，已停止切换预览。")
 
@@ -830,11 +952,14 @@ def cmd_end(args):
     if task_path.exists():
         changes = task_changes(task_path)
         if changes and not args.force:
-            print("任务 worktree 还有未合并改动，已停止清理。")
-            print("未合并文件:")
-            print(format_changes(changes))
-            print("请先执行 $worktree-merge，或确认放弃后让 Codex 使用 --force。")
-            return
+            if task_changes_absorbed_by_main(root, task_path, changes):
+                print("任务 worktree 还有本地改动，但这些改动已包含在主项目当前提交中，继续清理。")
+            else:
+                print("任务 worktree 还有未合并改动，已停止清理。")
+                print("未合并文件:")
+                print(format_changes(changes))
+                print("请先执行 $worktree-merge，或确认放弃后让 Codex 使用 --force。")
+                return
         run(["git", "worktree", "remove", "--force", str(task_path)], root)
 
     branch_exists = text(["git", "branch", "--list", task["branch"]], root)

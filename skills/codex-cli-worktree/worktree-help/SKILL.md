@@ -31,7 +31,7 @@ $worktree-sync --all        把主项目最新提交带到所有任务目录
 $worktree-take-sql <任务名> <sql...>
                             把任务新增 SQL 拿到主目录并从任务目录删除
 $worktree-push-sql <任务名> <sql...>
-                            拿取任务新增 SQL，自动 commit/push/sync --all 并切到任务预览
+                            拿取任务新增 SQL，自动 commit/push，同步本次 SQL 并切到任务预览
 $worktree-end <任务名>      清理任务 worktree、任务分支和任务状态
 $worktree-help              查看本帮助
 ```

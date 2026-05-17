@@ -53,9 +53,9 @@ python3 uninstall.py
 - 修改通用行为规则时，必须同步更新 `install.py` 内的 `VERSION` 和 `RULE_BLOCK`，必要时同步更新中英文 README。
 - `install.py` 必须幂等：重复执行不能破坏用户已有 `~/.codex/AGENTS.md`，只能替换标记块之间的内容。
 - 本机任务状态必须按仓库隔离保存在 `~/.codex-cli-worktree/state/`，不得写入业务项目仓库。
-- `$worktree-merge` 不得自动 commit；合并成功后必须反向同步到任务 worktree。
+- `$worktree-merge` 不得自动 commit；必须使用三方合并把任务改动带回主项目目录，遇到 Git 冲突时停止并让用户解决。
 - `$worktree-take-sql` 只用于把任务 worktree 中新增且未合并的 `.sql` 文件提前拿到主项目目录，并从任务 worktree 删除；不自动 commit。
-- `$worktree-push-sql` 用于一键把任务 worktree 中新增且未合并的 `.sql` 文件提前提交到主线：拿到主项目目录、删除任务副本、自动 add/commit/push、sync --all，并切换到该任务预览。
+- `$worktree-push-sql` 用于一键把任务 worktree 中新增且未合并的 `.sql` 文件提前提交到主线：拿到主项目目录、删除任务副本、自动 add/commit/push、只把本次 SQL 文件同步到各任务，并切换到该任务预览。
 - `$worktree-status` 只查看当前窗口所在 Git 仓库的 `git status --short --branch --untracked-files=all`，不修改任何文件。
 - 遇到业务冲突、数据库 schema、权限、路由、授权、配置、状态机冲突，必须停止并让用户决定。
 - 不要自动启动任何项目服务。
