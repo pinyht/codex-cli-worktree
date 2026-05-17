@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-VERSION = 12
+VERSION = 13
 STATE_ROOT = Path.home() / ".codex-cli-worktree" / "state"
 
 
@@ -144,7 +144,7 @@ def load_state(root):
     state_path = ensure_state(root)
     with state_path.open("r", encoding="utf-8") as f:
         state = json.load(f)
-    if state.get("version") in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) and isinstance(state.get("tasks"), dict):
+    if state.get("version") in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and isinstance(state.get("tasks"), dict):
         state["version"] = VERSION
         state.setdefault("preview", None)
         save_state(root, state)
@@ -233,6 +233,105 @@ def unmerged_files(root):
     return text(["git", "diff", "--name-only", "--diff-filter=U", "--"], root)
 
 
+def git_stage_blob(root, stage, path):
+    result = run(["git", "show", f":{stage}:{path}"], root, check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout.decode(errors="replace")
+
+
+def conflict_marker_count(content):
+    if content is None:
+        return 0
+    return sum(1 for line in content.splitlines() if line.startswith("<<<<<<< "))
+
+
+def conflict_reason(path, ours, theirs):
+    combined = f"{path}\n{ours or ''}\n{theirs or ''}".lower()
+    path_lower = path.lower()
+    reasons = []
+    if path_lower.endswith((".md", ".txt", ".rst")) or "/docs/" in f"/{path_lower}":
+        reasons.append("两边都修改了同一段文档内容")
+    if any(word in combined for word in ("route", "router", "/api/", "path:", "httprouter", "handlefunc")):
+        reasons.append("两边都修改了路由、页面入口或 API 注册区域")
+    if any(word in combined for word in ("menu", "nav", "sidebar", "command", "settings", "配置", "入口")):
+        reasons.append("两边都修改了菜单、命令入口或配置入口")
+    if any(word in combined for word in ("schema", "migration", "permission", "auth", "state", "状态机", "权限", "授权")):
+        reasons.append("包含 schema、权限、授权或状态机相关字样，需要确认语义")
+    if not reasons:
+        reasons.append("两边都修改了同一文本区域，Git 无法判断最终内容")
+    return "；".join(dict.fromkeys(reasons))
+
+
+def line_change_summary(base, ours, theirs):
+    parts = []
+    if base is None or ours is None:
+        parts.append("主项目版本: 新增或删除文件")
+    else:
+        parts.append(f"主项目版本: {len(ours.splitlines())} 行")
+    if base is None or theirs is None:
+        parts.append("任务版本: 新增或删除文件")
+    else:
+        parts.append(f"任务版本: {len(theirs.splitlines())} 行")
+    return "，".join(parts)
+
+
+def short_changed_terms(base, content):
+    if content is None:
+        return []
+    base_text = base or ""
+    candidates = re.findall(
+        r"(/[A-Za-z0-9_./:-]+|[A-Za-z_][A-Za-z0-9_./:-]{2,}|[\u4e00-\u9fff]{2,})",
+        content,
+    )
+    seen = []
+    for item in candidates:
+        if item in base_text or item in seen:
+            continue
+        if len(item) > 48:
+            item = item[:45] + "..."
+        seen.append(item)
+        if len(seen) >= 6:
+            break
+    return seen
+
+
+def analyze_conflict_file(root, path):
+    base = git_stage_blob(root, 1, path)
+    ours = git_stage_blob(root, 2, path)
+    theirs = git_stage_blob(root, 3, path)
+    working = None
+    try:
+        working = (root / path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        pass
+    return {
+        "path": path,
+        "reason": conflict_reason(path, ours, theirs),
+        "summary": line_change_summary(base, ours, theirs),
+        "markers": conflict_marker_count(working),
+        "ours_terms": short_changed_terms(base, ours),
+        "theirs_terms": short_changed_terms(base, theirs),
+    }
+
+
+def format_conflict_analysis(root, conflicted_paths):
+    lines = [f"检测到 {len(conflicted_paths)} 个冲突文件:"]
+    for index, path in enumerate(conflicted_paths, 1):
+        info = analyze_conflict_file(root, path)
+        lines.append(f"\n{index}. {path}")
+        lines.append(f"   冲突原因: {info['reason']}")
+        lines.append(f"   改动规模: {info['summary']}")
+        if info["markers"]:
+            lines.append(f"   冲突块: {info['markers']} 个")
+        if info["ours_terms"]:
+            lines.append(f"   主项目侧关键词: {', '.join(info['ours_terms'])}")
+        if info["theirs_terms"]:
+            lines.append(f"   任务侧关键词: {', '.join(info['theirs_terms'])}")
+        lines.append("   后续处理: 需要 Codex 读取冲突上下文后给出语义级修复方案")
+    return "\n".join(lines)
+
+
 def apply_task_patch(root, patch):
     result = run(["git", "apply", "--3way", "-"], root, check=False, input_data=patch)
     stdout = result.stdout.decode(errors="replace").strip()
@@ -242,20 +341,27 @@ def apply_task_patch(root, patch):
         return stdout, stderr
 
     conflicted = unmerged_files(root)
+    conflicted_paths = conflicted.splitlines() if conflicted else []
     detail_parts = []
     if stdout:
         detail_parts.append(f"stdout:\n{stdout}")
     if stderr:
         detail_parts.append(f"stderr:\n{stderr}")
     detail = "\n".join(detail_parts).strip()
-    if conflicted:
+    if conflicted_paths:
+        print(
+            "任务改动与主项目当前提交存在合并冲突，已进入冲突处理引导。\n"
+            "脚本不会自动 commit，也不会启动服务。"
+        )
+        if detail:
+            print()
+            print(detail)
+        print()
+        print(format_conflict_analysis(root, conflicted_paths))
         raise WorktreeError(
-            "任务改动与主项目当前提交存在合并冲突，已停止自动合并。\n"
-            "主项目目录已保留 Git 冲突状态，请在主项目目录手动解决冲突、验证后提交。\n"
-            "如需放弃本次合并，请手动执行 git reset --hard HEAD 和 git clean -fd。\n\n"
-            "冲突文件:\n"
-            f"{conflicted}\n\n"
-            f"{detail}"
+            "主项目目录已保留 Git 冲突状态，等待 Codex 进行 AI 语义分析和引导式处理。\n"
+            "Codex 应读取冲突文件、base/主项目/任务三方版本，给出可选修复方案；"
+            "用户选择后再修改文件解决冲突。"
         )
     raise WorktreeError(
         "任务改动无法三方合并到主项目目录，已停止。\n"
