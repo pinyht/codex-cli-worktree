@@ -702,12 +702,13 @@ def cmd_merge(args):
     reset_main_slot(root, state)
     state["preview"] = None
     save_state(root, state)
+    main_commit = text(["git", "rev-parse", "HEAD"], root)
 
     print("待合并文件:")
     print(format_changes(changes))
     apply_task_patch(root, patch)
 
-    reset_task_to_commit(task_path, main_head)
+    reset_task_to_commit(task_path, main_commit)
 
     task["status"] = "merged-to-main-pending-user-commit"
     task["last_merged_at"] = now()
