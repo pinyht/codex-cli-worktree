@@ -13,6 +13,7 @@ description: 将指定 codex-cli-worktree 任务的当前代码临时切换到�
 - 如果用户输入 `$worktree-switch --clear`，调用 `python3 "$HOME/.agents/skills/codex-cli-worktree/scripts/worktree-task.py" switch --clear`。
 - 否则从用户输入中提取任务名；任务名不能为空，不能包含空白字符，且不能以 `-` 开头或结尾。
 - 调用 `python3 "$HOME/.agents/skills/codex-cli-worktree/scripts/worktree-task.py" switch "任务名"`。
+- 如果命令因为沙箱或文件系统权限失败，例如出现 `.git/index.lock: Read-only file system`、`Permission denied`、无法写入 Git 索引或无法写入主项目目录，必须用同一个命令重新执行并申请 `require_escalated` 提权。
 - 不要启动任何项目服务。
 - switch 只用于主项目目录临时验证，不更新任务同步基线，不反向同步任务 worktree，不自动 commit。
 - switch 会在主项目目录干净或等于已记录的 switch 预览时，自动把主项目目录恢复到当前提交并清理新增文件，再复制任务目录里的改动。

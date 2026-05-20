@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 
 
-VERSION = "14"
+VERSION = "15"
 BEGIN = "<!-- codex-worktree-rules:start -->"
 END = "<!-- codex-worktree-rules:end -->"
 SKILL_BUNDLE_NAME = "codex-cli-worktree"
@@ -51,7 +51,7 @@ RULE_BLOCK = f"""{BEGIN}
 - 主项目目录是可重置的统一调试槽，只用于创建任务、切换预览、合并任务、同步任务、用户手动运行服务验证和用户手动 commit；任务目录用于具体开发和测试。
 - worktree 命令不得自动启动任何项目服务。
 - 任务名必须是可直接复制到 `$worktree-switch 任务名` 的单个参数，不得包含空格、Tab、换行或路径非法字符，且不能以 `-` 开头或结尾。
-- `$worktree-switch` 只用于预览任务效果；主项目目录干净或等于已记录的 switch 预览时，会自动恢复到当前提交并清理新增文件后复制任务改动；遇到无法确认来源的未提交改动必须停止。
+- `$worktree-switch` 只用于预览任务效果；主项目目录干净或等于已记录的 switch 预览时，会自动恢复到当前提交并清理新增文件后复制任务改动；遇到无法确认来源的未提交改动必须停止；如果 switch 因沙箱或文件系统权限无法写入主项目目录或 Git 索引（例如 `.git/index.lock: Read-only file system`、`Permission denied`）而失败，Codex 必须用同一命令重新执行并申请 `require_escalated` 提权。
 - `$worktree-merge` 不得自动 commit；执行前主项目目录必须干净或等于已记录的 switch 预览，脚本会先恢复并清理主项目调试槽，再把任务改动三方合并到主项目目录；遇到 Git 合并冲突时脚本保留冲突状态并输出基础分析，随后 Codex 必须读取冲突文件、三方版本和本次合并完整改动范围，检索相关路由、菜单、API、权限、配置、schema、测试和文档，给出 AI 语义级整体修复方案供用户选择，用户确认后再修改文件解决冲突。
 - `$worktree-sync` 执行前主项目目录必须没有未提交改动；同步只把主项目最新提交带到任务目录，若任务本地改动已被主项目吸收，可自动把任务目录重置对齐到主线；无法自动同步或会覆盖任务改动时必须停止，不得强制覆盖任务目录。
 - `$worktree-take-sql` 只支持 `.sql` 文件，一次可指定多个；执行前主项目目录必须干净或等于已记录的 switch 预览，执行时只拿取任务 worktree 中新增且未合并的 SQL 文件，复制到主项目目录后删除任务 worktree 内对应文件，不自动 commit。

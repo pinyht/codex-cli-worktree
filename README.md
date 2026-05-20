@@ -191,6 +191,7 @@ $worktree-push-sql 修复登录跳转 migrations/18.sql migrations/19.sql
 - 不自动 commit。
 - `$worktree-switch` 只用于临时预览，不更新任务基线、不反向同步任务 worktree。
 - `$worktree-switch` 会在主项目目录干净或等于已记录的 switch 预览时，自动把主项目目录恢复到当前提交并清理新增文件后复制任务改动；遇到无法确认来源的未提交改动会停止。
+- 如果 `$worktree-switch` 因沙箱或文件系统权限无法写入主项目目录或 Git 索引（例如 `.git/index.lock: Read-only file system`、`Permission denied`）而失败，Codex 应使用同一命令重新执行并申请 `require_escalated` 提权。
 - `$worktree-merge` 会在合并任务改动前恢复并清理主项目调试槽，使用 Git 三方合并写入主项目目录，不自动 commit；遇到冲突时脚本保留冲突状态并输出基础分析，随后 Codex 读取冲突文件、三方版本和本次合并完整改动范围，检索相关路由、菜单、API、权限、配置、schema、测试和文档，给出 AI 语义级整体修复方案供你选择，确认后再修改文件解决冲突。合并成功后，任务 worktree 会自动对齐到主线。
 - `$worktree-take-sql` 只处理任务 worktree 中新增且未合并的 `.sql` 文件，复制到主项目目录后删除任务目录内对应文件，不自动 commit。
 - `$worktree-push-sql` 只处理任务 worktree 中新增且未合并的 `.sql` 文件，会自动 commit 和 push，并只把本次 SQL 文件同步到各任务；提交信息格式为 `add SQL文件 SQL文件`。
