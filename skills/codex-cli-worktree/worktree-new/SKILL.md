@@ -1,11 +1,11 @@
 ---
 name: worktree-new
-description: 创建新的 codex-cli-worktree 并行 Git worktree 任务。用户输入 $worktree-new 任务名时使用。
+description: 创建新的 codex-cli-worktree 并行 Git worktree 任务。仅在用户输入 $worktree-new 任务名时执行。
 ---
 
 # worktree-new
 
-当用户输入 `$worktree-new 任务名` 或要求创建新的 worktree 并行任务时使用本 skill。
+当用户输入 `$worktree-new 任务名` 时使用本 skill。
 
 ## 执行要求
 

@@ -614,7 +614,7 @@ def cmd_new(args):
 
     slug = branch_slug(name)
     repo_name = root.name
-    base_dir = root.parent / f"{repo_name}.worktrees"
+    base_dir = root.parent / f"{repo_name}.codex-worktrees"
     worktree = (base_dir / worktree_dir_name(name)).resolve()
     branch = f"worktree/{slug}"
     if worktree.exists():
@@ -677,6 +677,270 @@ def cmd_list(_args):
         print(f"  更新时间: {task.get('updated_at')}")
 
 
+def codex_session_root():
+    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+    return codex_home / "sessions"
+
+
+def parse_session_time(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def read_session_meta(path):
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            for index, line in enumerate(handle):
+                if index >= 80:
+                    break
+                if '"session_meta"' not in line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if entry.get("type") == "session_meta":
+                    return entry.get("payload") or {}
+    except OSError:
+        return None
+    return None
+
+
+def session_meta_matches_task(meta, task_path):
+    values = [meta.get("cwd")]
+    roots = meta.get("runtime_workspace_roots")
+    if isinstance(roots, list):
+        values.extend(roots)
+    for value in values:
+        if not isinstance(value, str) or not value:
+            continue
+        try:
+            if Path(value).expanduser().resolve() == task_path:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def codex_message_texts(payload):
+    content = payload.get("content")
+    if isinstance(content, str):
+        return [content] if content.strip() else []
+    if not isinstance(content, list):
+        return []
+    texts = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("text")
+        if isinstance(value, str) and value.strip():
+            texts.append(value)
+    return texts
+
+
+def is_synthetic_user_message(text):
+    prefixes = (
+        "# AGENTS.md instructions",
+        "<environment_context>",
+        "<user_shell_command>",
+        "<turn_aborted>",
+        "<send_user_message_question_reply>",
+        "<skills_instructions>",
+        "<permissions instructions>",
+        "<collaboration_mode>",
+        "<user_message>",
+    )
+    stripped = text.lstrip()
+    return any(stripped.startswith(prefix) for prefix in prefixes)
+
+
+def task_session_memory(task_path, created_at=None, max_prompts=40, max_chars=4000):
+    """从任务 worktree 的 Codex 会话记录里提取任务记忆。
+
+    只读取用户消息和每轮最终总结，不读取工具输出。
+    会话 JSONL 属于 Codex 本地实现，读不到时返回空并降级处理。
+    """
+    sessions_root = codex_session_root()
+    if not sessions_root.is_dir():
+        return [], None, []
+
+    task_path = task_path.resolve()
+    created_ts = parse_session_time(created_at)
+    candidates = []
+    try:
+        for path in sessions_root.rglob("*.jsonl"):
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            if created_ts is not None and mtime < created_ts - 60:
+                continue
+            candidates.append((mtime, path))
+    except OSError:
+        return [], None, []
+
+    candidates.sort(reverse=True)
+    matches = []
+    for mtime, path in candidates:
+        meta = read_session_meta(path)
+        if not meta:
+            continue
+        if not session_meta_matches_task(meta, task_path):
+            continue
+        matches.append((mtime, path, meta))
+        if len(matches) >= 5:
+            break
+
+    if not matches:
+        return [], None, []
+
+    matches.sort(key=lambda item: item[0])
+    prompts = []
+    seen_prompts = set()
+    summary = None
+    session_ids = []
+
+    for _mtime, path, meta in matches:
+        session_id = meta.get("session_id") or meta.get("id")
+        if session_id:
+            session_ids.append(str(session_id))
+
+        try:
+            if path.stat().st_size > 64 * 1024 * 1024:
+                continue
+            file_summary = None
+            last_assistant = None
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if '"response_item"' in line and '"message"' in line:
+                        try:
+                            entry = json.loads(line)
+                        except ValueError:
+                            continue
+                        if entry.get("type") != "response_item":
+                            continue
+                        payload = entry.get("payload") or {}
+                        if payload.get("type") != "message":
+                            continue
+                        role = payload.get("role")
+                        texts = codex_message_texts(payload)
+                        if not texts:
+                            continue
+                        message = "\n".join(texts).strip()
+                        if not message:
+                            continue
+                        if role == "user":
+                            if is_synthetic_user_message(message):
+                                continue
+                            if message not in seen_prompts:
+                                seen_prompts.add(message)
+                                prompts.append(message)
+                        elif role == "assistant":
+                            last_assistant = message
+                    elif '"task_complete"' in line:
+                        try:
+                            entry = json.loads(line)
+                        except ValueError:
+                            continue
+                        if entry.get("type") != "event_msg":
+                            continue
+                        payload = entry.get("payload") or {}
+                        if payload.get("type") != "task_complete":
+                            continue
+                        message = payload.get("last_agent_message")
+                        if isinstance(message, str) and message.strip():
+                            file_summary = message.strip()
+            if file_summary is None and last_assistant:
+                file_summary = last_assistant
+            if file_summary:
+                summary = file_summary
+        except OSError:
+            continue
+
+    if len(prompts) > max_prompts:
+        prompts = prompts[:2] + ["……（中间省略）"] + prompts[-(max_prompts - 3):]
+
+    trimmed = []
+    used = 0
+    for message in prompts:
+        if used >= max_chars:
+            trimmed.append("……（后续省略）")
+            break
+        piece = message if len(message) <= 800 else message[:800] + "…"
+        trimmed.append(piece)
+        used += len(piece)
+    if summary and len(summary) > 1500:
+        summary = summary[:1500] + "…"
+    return trimmed, summary, list(dict.fromkeys(session_ids))
+
+
+def print_task_memory(task_path, root, task):
+    prompts, summary, session_ids = task_session_memory(task_path, task.get("created_at"))
+    print()
+    if not prompts and not summary:
+        print("任务会话记忆: 未找到（会话记录可能已清理或任务不在本机开发）。")
+        print("请仅依据主项目目录里的改动生成提交说明。")
+        return
+
+    print("任务会话记忆（来自任务目录的 Codex 会话记录）:")
+    if prompts:
+        print("  你当初的要求:")
+        for message in prompts:
+            for line in message.splitlines():
+                print(f"    {line}")
+    if summary:
+        print("  任务会话最后总结:")
+        for line in summary.splitlines():
+            print(f"    {line}")
+    if session_ids:
+        latest = session_ids[-1]
+        print(f"  任务会话 ID: {latest}")
+        print("  如需完整任务上下文，可在主项目目录执行:")
+        print(f"    codex fork {sh_quote(latest)} -C {sh_quote(str(root))}")
+
+
+def task_extra_commits(root, task_path):
+    """返回 (任务分支上主线没有的提交列表, 恢复时应重置到的提交)。"""
+    main_head = text(["git", "rev-parse", "HEAD"], root)
+    task_head = text(["git", "rev-parse", "HEAD"], task_path)
+    if task_head == main_head:
+        return [], main_head
+
+    listing = text(["git", "log", "--oneline", f"{main_head}..{task_head}"], task_path)
+    commits = [line for line in listing.splitlines() if line.strip()]
+    if not commits:
+        return [], main_head
+
+    result = run(["git", "merge-base", task_head, main_head], task_path, check=False)
+    base = result.stdout.decode(errors="replace").strip() if result.returncode == 0 else ""
+    return commits, (base or main_head)
+
+
+def require_no_task_commits(root, task_path, force_hint=False):
+    commits, base = task_extra_commits(root, task_path)
+    if not commits:
+        return
+
+    shown = "\n".join(f"  {line}" for line in commits[:10])
+    more = f"\n  ……（共 {len(commits)} 个）" if len(commits) > 10 else ""
+    message = (
+        "任务分支上有主线没有的提交，已停止。\n"
+        "merge/switch 只搬运任务目录里的未提交改动；这些已提交的改动不会被带到主项目目录，"
+        "而且合并后任务 worktree 会被重置到主线，这些提交会变成孤儿。\n\n"
+        f"带不过来的提交:\n{shown}{more}\n\n"
+        "恢复方法（在任务目录执行，改动内容不会丢）:\n"
+        f"  git reset --soft {base}\n"
+        "然后重新执行本命令。"
+    )
+    if force_hint:
+        message += "\n确认这些提交可以放弃时，可用 --force 强制清理。"
+    raise WorktreeError(message)
+
+
 def cmd_merge(args):
     root = require_main_project_dir()
     state = load_state(root)
@@ -685,6 +949,7 @@ def cmd_merge(args):
     if not task_path.exists():
         raise WorktreeError(f"任务目录不存在: {task_path}")
 
+    require_no_task_commits(root, task_path)
     changes = task_changes(task_path)
     if not changes:
         state["preview"] = None
@@ -717,7 +982,10 @@ def cmd_merge(args):
     save_state(root, state)
 
     print("已把任务改动三方合并到主项目目录，主项目未自动 commit。")
-    print("请在主项目目录手动重启服务验证；验证通过后由你手动 commit。")
+    print("请在主项目目录手动重启服务验证。")
+    print_task_memory(task_path, root, task)
+    print()
+    print("验证通过后由你决定：可以让 Codex 依据任务会话记忆和主项目 diff 写提交说明并提交，也可以自己手动 git commit。")
 
 
 def cmd_sync(args):
@@ -755,6 +1023,7 @@ def cmd_sync(args):
                 print(message)
                 if "无法直接拉取主项目最新提交" in message:
                     print(sync_conflict_advice(name))
+            raise WorktreeError(f"{len(failed)} 个任务同步被阻止，详见上方输出。")
         return
 
     name = (args.name or "").strip()
@@ -943,6 +1212,7 @@ def switch_to_task(root, state, name):
     if not task_path.exists():
         raise WorktreeError(f"任务目录不存在: {task_path}")
 
+    require_no_task_commits(root, task_path)
     changes = task_changes(task_path)
     reset_main_slot(root, state)
     if not changes:
@@ -1009,6 +1279,9 @@ def cmd_push_sql(args):
             raise WorktreeError("当前 SQL 对应任务同步失败，已停止切换预览。")
 
     switch_to_task(root, state, name)
+
+    if failed:
+        raise WorktreeError(f"{len(failed)} 个任务的 SQL 同步被阻止，详见上方输出。")
 
 
 def cmd_switch(args):
@@ -1082,16 +1355,19 @@ def cmd_end(args):
     task = get_task(state, name)
     task_path = Path(task["worktree"])
     if task_path.exists():
+        if not args.force:
+            require_no_task_commits(root, task_path, force_hint=True)
         changes = task_changes(task_path)
         if changes and not args.force:
             if task_changes_absorbed_by_main(root, task_path, changes):
                 print("任务 worktree 还有本地改动，但这些改动已包含在主项目当前提交中，继续清理。")
             else:
-                print("任务 worktree 还有未合并改动，已停止清理。")
-                print("未合并文件:")
-                print(format_changes(changes))
-                print("请先执行 $worktree-merge，或确认放弃后让 Codex 使用 --force。")
-                return
+                raise WorktreeError(
+                    "任务 worktree 还有未合并改动，已停止清理。\n"
+                    "未合并文件:\n"
+                    f"{format_changes(changes)}\n"
+                    "请先执行 $worktree-merge，或确认放弃后使用 --force。"
+                )
         run(["git", "worktree", "remove", "--force", str(task_path)], root)
 
     branch_exists = text(["git", "branch", "--list", task["branch"]], root)

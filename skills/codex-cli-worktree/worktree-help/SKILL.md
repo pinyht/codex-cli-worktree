@@ -1,11 +1,11 @@
 ---
 name: worktree-help
-description: 说明 codex-cli-worktree 并行 Git worktree Skills 的用法。用户输入 $worktree-help 时使用。
+description: 说明 codex-cli-worktree 并行 Git worktree Skills 的用法。仅在用户输入 $worktree-help 时执行。
 ---
 
 # worktree-help
 
-当用户输入 `$worktree-help` 或要求查看 worktree 命令帮助时使用本 skill。
+当用户输入 `$worktree-help` 时使用本 skill。
 
 ## 执行要求
 
@@ -15,7 +15,7 @@ description: 说明 codex-cli-worktree 并行 Git worktree Skills 的用法。�
 
 ## 帮助内容
 
-worktree 并行开发命令：
+worktree 并行开发命令（只能由用户手动输入 `$worktree-*` 触发，模型不得自行调用或复刻）：
 
 ```text
 $worktree-new <任务名>      创建任务 worktree 和任务分支
@@ -23,16 +23,16 @@ $worktree-list              查看当前仓库的任务列表
 $worktree-info <任务名>     查看任务状态、分支、任务目录和继续开发命令
 $worktree-current           查看当前窗口对应任务，或主目录当前状态
 $worktree-status            查看当前窗口 Git 未提交状态
-$worktree-switch <任务名>   恢复主项目目录后临时复制任务改动用于验证
+$worktree-switch <任务名>   恢复主项目目录后临时复制任务改动用于验证；任务分支有提交时停止
 $worktree-switch --clear    清除 switch 预览，恢复主项目目录并清理新增文件
-$worktree-merge <任务名>    恢复主项目目录后复制任务改动到主项目，不自动 commit；成功后任务目录自动对齐主线
+$worktree-merge <任务名>    恢复主项目目录后复制任务改动到主项目，带出任务会话记忆，不自动 commit；成功后任务目录自动对齐主线
 $worktree-sync <任务名>     把主项目最新提交带到任务目录；若任务改动已被主线吸收则自动对齐
-$worktree-sync --all        把主项目最新提交带到所有任务目录
+$worktree-sync --all        把主项目最新提交带到所有任务目录；任一任务失败时非零退出
 $worktree-take-sql <任务名> <sql...>
                             把任务新增 SQL 拿到主目录并从任务目录删除
 $worktree-push-sql <任务名> <sql...>
-                            拿取任务新增 SQL，自动 commit/push，同步本次 SQL 并切到任务预览
-$worktree-end <任务名>      清理任务 worktree、任务分支和任务状态
+                            拿取任务新增 SQL，自动 commit/push，同步本次 SQL 并切到任务预览；部分失败时非零退出
+$worktree-end <任务名>      清理任务 worktree、任务分支和任务状态；有任务分支提交或未合并改动时停止
 $worktree-help              查看本帮助
 ```
 
@@ -44,18 +44,20 @@ $worktree-help              查看本帮助
 4. 需要临时看效果时，回主项目目录执行 `$worktree-switch 任务名`。
 5. 确认任务完成后，回主项目目录执行 `$worktree-merge 任务名`。
 6. 用户手动重启服务或运行验证命令。
-7. 验证通过后用户手动 commit。
+7. 验证通过后由用户决定提交方式：用户明确要求时，Codex 依据任务会话记忆和主项目 diff 写提交说明并提交；用户也可以自己手动 commit。
 8. 主项目有新提交后，可执行 `$worktree-sync --all` 带到未完成任务。
 9. 执行 `$worktree-end 任务名` 清理任务。
 10. 如需查看当前窗口任务名，执行 `$worktree-current`。
 11. 如需查看当前窗口未提交文件，执行 `$worktree-status`。
-12. 如果任务产生数据库迁移 SQL，可先在主项目目录执行 `$worktree-take-sql 任务名 migrations/1.sql`，手动 commit 后再 `$worktree-sync 任务名`。
+12. 如果任务产生数据库迁移 SQL，可先在主项目目录执行 `$worktree-take-sql 任务名 migrations/1.sql`，提交后再 `$worktree-sync 任务名`。
 13. 如果希望一键提交并切回任务预览，可执行 `$worktree-push-sql 任务名 migrations/1.sql`。
 
 说明：
 
-- 主项目目录是可重置的统一调试槽，用于创建、合并、验证和手动 commit。
-- 任务目录用于具体开发。
+- 主项目目录是可重置的统一调试槽，用于创建、合并、验证和用户提交。
+- 任务目录用于具体开发；新任务 worktree 默认创建在 `../<repo-name>.codex-worktrees/`。
 - 任务名必须是单个参数，不能包含空格、Tab、换行、路径分隔符或路径非法字符，且不能以 `-` 开头或结尾；新任务目录名会包含完整任务名。
 - `$worktree-switch` 只用于临时预览，不更新任务基线、不自动 commit；主目录有非 switch 产生的未提交改动时会停止。
+- `$worktree-merge` 成功后带出任务会话记忆；任务分支上有主线没有的提交时，merge、switch 和非强制 end 都会停止。
 - `$worktree-info` 只查询任务信息，不会自动切换当前 Codex CLI 会话目录。
+- 脚本以非零退出码表示操作被阻止或未完成；遇到非零退出码时先说明原因，不要自动重试，也不要用其他方式绕过约束。

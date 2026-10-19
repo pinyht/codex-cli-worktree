@@ -1,11 +1,11 @@
 ---
 name: worktree-current
-description: 查看当前 Codex CLI 窗口对应的 worktree 任务，或查看主项目目录当前是否处于 switch 预览/主线基线状态。用户输入 $worktree-current 时使用。
+description: 查看当前 Codex CLI 窗口对应的 worktree 任务，或查看主项目目录当前是否处于 switch 预览/主线基线状态。仅在用户输入 $worktree-current 时执行。
 ---
 
 # worktree-current
 
-当用户输入 `$worktree-current`，或要求查看当前窗口属于哪个 worktree 任务时使用本 skill。
+当用户输入 `$worktree-current` 时使用本 skill。
 
 ## 执行要求
 

@@ -11,16 +11,21 @@ English documentation: [README.en.md](README.en.md)
 ## 功能
 
 - 创建独立 Git worktree 任务目录。
+- 所有 `$worktree-*` Skills 都通过 `agents/openai.yaml` 设置 `allow_implicit_invocation: false`，只能由用户手动输入触发；模型不会自动调用，也不应自行执行脚本或复刻流程。
 - 切换预览时，先把主项目目录恢复干净，再把某个任务的改动复制过来看效果，不污染其他任务。
 - 合并任务时，先把主项目目录恢复干净，再把任务改动三方合并回主项目目录，但不自动 commit；遇到冲突会保留冲突状态，并由 Codex 基于冲突上下文和本次合并完整改动范围给出 AI 语义级整体修复方案。合并成功后，任务 worktree 会自动对齐到主线，避免后续 sync 重复卡在旧差异上。
+- 合并成功后自动带出任务会话记忆，包括用户要求和最后总结，方便写提交说明；需要完整上下文时可按输出提示分叉任务会话。
+- 任务分支上有主线没有的提交时，merge、switch 和非强制 end 会停止并给出恢复命令，避免已提交改动在重置后变成孤儿。
+- 支持用户明确要求后由 Codex 依据任务会话记忆和主项目 diff 写提交说明并提交；也支持用户自己手动 commit。
 - 可把任务中新增的 SQL 迁移文件提前拿到主项目目录，便于主目录先 review、commit，再同步回任务。
 - 可一键把任务 SQL 提交并推送到主线，把本次 SQL 文件同步到各任务后切回该任务预览。
 - 查看当前窗口任务、恢复预览、同步、清理 worktree 任务。
 - 在 Codex CLI 内查看当前 Git 工作区状态，方便确认未提交文件和 SQL 路径。
-- 新任务 worktree 目录名包含完整任务名，便于区分多个 Codex CLI 窗口。
+- 新任务 worktree 默认创建在 `../<repo-name>.codex-worktrees/`，目录名包含完整任务名，便于区分多个 Codex CLI 窗口。
 - 任务状态按仓库隔离保存到 `~/.codex-cli-worktree/state/`，不写入业务项目仓库。
 - 安装 Codex Skills 到 `~/.agents/skills/codex-cli-worktree/`。
 - 幂等更新 `~/.codex/AGENTS.md` 中的通用规则块。
+- 脚本以非零退出码表示操作被阻止或未完成，便于 Codex 正确识别失败和部分失败。
 
 ## 适用场景
 
@@ -31,11 +36,11 @@ English documentation: [README.en.md](README.en.md)
 - 你希望任务目录隔离，避免一个会话的临时修改阻塞另一个会话。
 - 你需要在多个任务之间来回切换预览效果，但暂时不想把某个任务作为最终合并结果。
 
-它不负责启动服务、运行长期进程或自动 commit。主项目目录是可重置的统一调试槽，只用于创建任务、切换预览、合并任务、同步任务、用户手动验证和用户手动 commit；任务 worktree 目录用于具体开发。
+它不负责启动服务、运行长期进程或主动 commit。主项目目录是可重置的统一调试槽，只用于创建任务、切换预览、合并任务、同步任务、用户手动验证和提交；任务 worktree 目录用于具体开发。
 
 ## 要求
 
-- Codex CLI，且支持 Skills。
+- Codex CLI，且支持 Skills 和 `agents/openai.yaml` 调用策略（本机在 `codex-cli 0.163.0` 验证）。
 - Python 3。
 - Git。
 - Linux 或 macOS。暂不适配 Windows。
@@ -52,8 +57,11 @@ python3 install.py
 
 ```text
 skills/codex-cli-worktree/worktree-*/SKILL.md -> ~/.agents/skills/codex-cli-worktree/worktree-*/SKILL.md
+skills/codex-cli-worktree/worktree-*/agents/openai.yaml -> ~/.agents/skills/codex-cli-worktree/worktree-*/agents/openai.yaml
 scripts/worktree-task.py -> ~/.agents/skills/codex-cli-worktree/scripts/worktree-task.py
 ```
+
+安装时会校验每个 Skill 的 `SKILL.md` 和 `agents/openai.yaml`，缺少 `allow_implicit_invocation: false` 会直接报错退出。
 
 并创建：
 
@@ -83,7 +91,7 @@ $worktree-take-sql 修复登录跳转 migrations/18.sql
 $worktree-push-sql 修复登录跳转 migrations/18.sql
 ```
 
-`$worktree-*` 是 Codex Skill mention，不是 shell 命令，也不是旧版 `/worktree-*` 斜杠命令。输入 `$worktree-` 后可以用 Codex 的补全选择具体 skill。
+`$worktree-*` 是 Codex Skill mention，不是 shell 命令，也不是旧版 `/worktree-*` 斜杠命令。输入 `$worktree-` 后可以用 Codex 的补全选择具体 skill。所有 worktree Skill 都是显式调用模式，必须由你输入 `$worktree-*`，Codex 不会根据普通描述自动选择。
 
 任务名可以使用中文、英文、数字、`-`、`_`、`.`，但必须是单个参数，不能包含空格、Tab、换行、路径分隔符或 `: * ? " < > |` 等路径非法字符，也不能以 `-` 开头或结尾。这样任务名可以直接复制到 `$worktree-switch 任务名` 等命令里。
 
@@ -115,15 +123,15 @@ python3 install.py
 | `$worktree-info <任务名>` | 主项目目录，任务目录也可 | 查看指定任务的状态、分支和任务目录，并输出一行继续开发命令。 |
 | `$worktree-current` | 主项目目录，任务目录也可 | 查看当前窗口对应任务；在主项目目录查看当前是 switch 预览、主线基线还是未提交改动状态。 |
 | `$worktree-status` | 主项目目录，任务目录也可 | 查看当前窗口所在 Git 仓库的 `git status --short --branch --untracked-files=all`，用于确认未提交文件和 SQL 路径。 |
-| `$worktree-switch <任务名>` | 主项目目录 | 先把主项目目录恢复干净，再把任务目录里的改动复制过来用于验证，不反向同步、不自动 commit。 |
+| `$worktree-switch <任务名>` | 主项目目录 | 先把主项目目录恢复干净，再把任务目录里的改动复制过来用于验证，不反向同步、不自动 commit；任务分支有主线没有的提交时停止。 |
 | `$worktree-switch --clear` | 主项目目录 | 清除当前 switch 预览，把主项目目录恢复到当前提交并清理新增文件。 |
-| `$worktree-merge <任务名>` | 主项目目录 | 先把主项目目录恢复干净，再把任务目录里的改动三方合并到主项目目录，不自动 commit；遇到冲突后由 Codex 分析并引导处理。 |
+| `$worktree-merge <任务名>` | 主项目目录 | 先把主项目目录恢复干净，再把任务目录里的改动三方合并到主项目目录，带出任务会话记忆，不自动 commit；任务分支有主线没有的提交时停止；遇到冲突后由 Codex 分析并引导处理。 |
 | `$worktree-sync <任务名>` | 主项目目录 | 把主项目最新提交带到指定任务目录，类似在任务目录拉取主线；如果任务本地改动已被主项目吸收，会自动把任务目录重置对齐到主线。 |
-| `$worktree-sync --all` | 主项目目录 | 把主项目最新提交带到所有任务目录；无法自动同步的任务会停止并在汇总中列出；已被主线吸收的任务会自动对齐。 |
+| `$worktree-sync --all` | 主项目目录 | 把主项目最新提交带到所有任务目录；无法自动同步的任务会停止并在汇总中列出，任一任务失败时脚本以非零退出码结束；已被主线吸收的任务会自动对齐。 |
 | `$worktree-take-sql <任务名> <sql...>` | 主项目目录 | 把任务 worktree 中新增的 `.sql` 文件拿到主项目目录，并从任务 worktree 删除；支持一次指定多个 SQL，不自动 commit。 |
-| `$worktree-push-sql <任务名> <sql...>` | 主项目目录 | 把任务新增 `.sql` 文件拿到主项目目录并删除任务副本，自动 add/commit/push，把本次 SQL 文件同步到各任务，然后切换到该任务预览。 |
-| `$worktree-end <任务名>` | 主项目目录 | 清理任务 worktree、任务分支和任务状态。如果任务仍有未合并改动，会停止。 |
-| `$worktree-end <任务名> --force` | 主项目目录 | 强制清理任务。仅在你确认任务 worktree 剩余差异可以放弃时使用。 |
+| `$worktree-push-sql <任务名> <sql...>` | 主项目目录 | 把任务新增 `.sql` 文件拿到主项目目录并删除任务副本，自动 add/commit/push，把本次 SQL 文件同步到各任务，然后切换到该任务预览；部分任务同步失败时以非零退出码结束。 |
+| `$worktree-end <任务名>` | 主项目目录 | 清理任务 worktree、任务分支和任务状态。任务分支有主线没有的提交或仍有未合并改动时会停止。 |
+| `$worktree-end <任务名> --force` | 主项目目录 | 强制清理任务，跳过任务分支提交和剩余改动检查。仅在你确认任务 worktree 剩余差异可以放弃时使用。 |
 | `$worktree-help` | 任意 Git 项目目录 | 查看命令帮助。 |
 
 ## 推荐流程
@@ -137,12 +145,12 @@ python3 install.py
 5. 在任务目录开发、改文件、跑必要的短命令；不要在任务目录启动长期运行的项目服务。
 6. 需要临时看效果时，回到主项目目录输入 `$worktree-switch 修复登录跳转`，然后手动启动服务或运行验证命令。
 7. 如果要切换看另一个任务，直接输入 `$worktree-switch 另一个任务名`；工具会先确认主项目目录只有上一轮预览改动，再恢复干净并切换。
-8. 开发完成后，回到主项目目录输入 `$worktree-merge 修复登录跳转`。合并成功后，任务 worktree 会自动对齐到主线。
+8. 开发完成后，回到主项目目录输入 `$worktree-merge 修复登录跳转`。合并成功后，任务 worktree 会自动对齐到主线，并带出任务会话记忆。
 9. 如果遇到冲突，工具会列出冲突文件并保留冲突状态，Codex 会继续读取冲突文件、base/主项目/任务三方版本和本次合并完整改动范围，并检索相关路由、菜单、API、权限、配置、schema、测试和文档，给出 AI 语义级整体修复方案；你可以选择某个方案让 Codex 自动改文件，也可以选择全部手工处理。
 10. 合并成功或冲突处理完成后，在主项目目录手动启动服务或运行验证命令。
-11. 验证通过后，由你手动 `git commit`。
+11. 验证通过后由你决定提交方式：直接说「提交」，Codex 会依据任务会话记忆和主项目 diff 写提交信息并执行 `git add -A && git commit`；你也可以自己手动 `git commit`、自己写说明。
 12. 主项目有新提交后，可输入 `$worktree-sync --all` 把最新提交带到其他任务目录；有冲突或可能覆盖任务改动的任务会停止并输出处理建议；已被主线吸收的任务会自动对齐。
-13. 输入 `$worktree-end 修复登录跳转` 清理任务。如果冲突后做过语义合并，主项目已经提交且工作区干净，但 end 仍提示任务 worktree 有未合并改动，需要先核对差异；确认任务目录里的剩余原始差异可以放弃后，才明确要求 Codex 使用 `$worktree-end 修复登录跳转 --force`。
+13. 输入 `$worktree-end 修复登录跳转` 清理任务。如果冲突后做过语义合并，主项目已经提交且工作区干净，但 end 仍提示任务 worktree 有未合并改动，需要先核对差异；确认任务目录里的剩余原始差异可以放弃后，才明确要求 Codex 使用 `$worktree-end 修复登录跳转 --force`。如果任务分支上有主线没有的提交，普通 end 也会停止，必须先恢复或明确放弃。
 
 如果新会话忘记任务目录，可以在主项目目录输入 `$worktree-info 修复登录跳转` 查看。它只负责查询任务信息，不会自动切换当前 Codex CLI 会话目录；如果要继续开发，使用输出的继续开发命令打开任务目录的新 Codex CLI。
 
@@ -160,7 +168,7 @@ python3 install.py
 $worktree-take-sql 修复登录跳转 migrations/18.sql migrations/19.sql
 ```
 
-该命令只接受 `.sql` 文件，会把这些新增 SQL 从任务 worktree 复制到主项目目录，并删除任务 worktree 内对应文件；它不自动 commit。你在主目录 review 后手动提交 SQL，再执行 `$worktree-sync 修复登录跳转`，任务目录就会从主线重新拿到这些 SQL。
+该命令只接受 `.sql` 文件，会把这些新增 SQL 从任务 worktree 复制到主项目目录，并删除任务 worktree 内对应文件；它不自动 commit。你在主目录 review 后提交 SQL，再执行 `$worktree-sync 修复登录跳转`，任务目录就会从主线重新拿到这些 SQL。
 
 如果你希望一键完成 SQL 入主线并直接回到该任务预览，可以执行：
 
@@ -168,7 +176,23 @@ $worktree-take-sql 修复登录跳转 migrations/18.sql migrations/19.sql
 $worktree-push-sql 修复登录跳转 migrations/18.sql migrations/19.sql
 ```
 
-它会自动执行：拿取 SQL、删除任务目录 SQL 副本、`git add`、`git commit -m "add migrations/18.sql migrations/19.sql"`、`git push`、把本次 SQL 文件同步到各任务，最后 `$worktree-switch 修复登录跳转`。它不会执行完整 `$worktree-sync --all`，因此不会因为其他业务文件的本地改动阻塞 SQL 编号同步。如果 push 失败、当前任务 SQL 同步失败，或目标任务已有同路径但内容不同的 SQL，命令会停止并输出原因。
+它会自动执行：拿取 SQL、删除任务目录 SQL 副本、`git add`、`git commit -m "add migrations/18.sql migrations/19.sql"`、`git push`、把本次 SQL 文件同步到各任务，最后 `$worktree-switch 修复登录跳转`。它不会执行完整 `$worktree-sync --all`，因此不会因为其他业务文件的本地改动阻塞 SQL 编号同步。如果 push 失败、当前任务 SQL 同步失败，或目标任务已有同路径但内容不同的 SQL，命令会停止并输出原因；部分任务 SQL 同步失败时以非零退出码结束。
+
+## 任务记忆与提交
+
+任务的「为什么改」只有任务目录里的会话知道，主目录会话看不到。所以 `$worktree-merge` 会从任务目录的 Codex 会话记录里自动提取：
+
+- 你当初输入的用户要求
+- 任务会话的最后总结
+- 任务会话 ID
+
+只读用户消息和最终总结，不读工具输出；找不到会话时降级为只依据主项目改动生成说明。合并完成后，这些内容会和待合并文件清单一并打印出来。需要完整上下文时，可按输出提示执行：
+
+```text
+codex fork <会话ID> -C <主项目目录>
+```
+
+提交规则：工具不会主动 commit。只有你明确要求时才提交；你可以让 Codex 依据任务会话记忆和主项目 diff 写提交说明并提交，也可以自己 `git commit`、自己写说明，Codex 不会重复提交。
 
 ## 状态和生成文件
 
@@ -181,26 +205,35 @@ $worktree-push-sql 修复登录跳转 migrations/18.sql migrations/19.sql
 任务 worktree 默认创建在仓库旁边：
 
 ```text
-../<repo-name>.worktrees/task-<任务名>-<hash>/
+../<repo-name>.codex-worktrees/task-<任务名>-<hash>/
 ```
 
 状态文件只保存在本机，不会写入业务项目仓库。
 
 ## 安全约束
 
-- 不自动 commit。
+- 不会主动 commit；只有用户明确要求时才提交。`$worktree-push-sql` 除外，它的语义就是提交并推送 SQL。
+- 所有 worktree 命令只能由用户手动输入 `$worktree-*` 触发；Codex 不得自行调用、执行脚本或用其他方式复刻流程。
 - `$worktree-switch` 只用于临时预览，不更新任务基线、不反向同步任务 worktree。
 - `$worktree-switch` 会在主项目目录干净或等于已记录的 switch 预览时，自动把主项目目录恢复到当前提交并清理新增文件后复制任务改动；遇到无法确认来源的未提交改动会停止。
 - 如果 `$worktree-switch` 因沙箱或文件系统权限无法写入主项目目录或 Git 索引（例如 `.git/index.lock: Read-only file system`、`Permission denied`）而失败，Codex 应使用同一命令重新执行并申请 `require_escalated` 提权。
-- `$worktree-merge` 会在合并任务改动前恢复并清理主项目调试槽，使用 Git 三方合并写入主项目目录，不自动 commit；遇到冲突时脚本保留冲突状态并输出基础分析，随后 Codex 读取冲突文件、三方版本和本次合并完整改动范围，检索相关路由、菜单、API、权限、配置、schema、测试和文档，给出 AI 语义级整体修复方案供你选择，确认后再修改文件解决冲突。合并成功后，任务 worktree 会自动对齐到主线。
+- `$worktree-switch`、`$worktree-merge` 和非强制 `$worktree-end` 在任务分支上有主线没有的提交时会停止；这些提交不会被 merge/switch 搬运，合并后还会被重置成孤儿。按脚本输出的 `git reset --soft <提交>` 在任务目录恢复后重试，不要绕过检查。
+- `$worktree-merge` 会在合并任务改动前恢复并清理主项目调试槽，使用 Git 三方合并写入主项目目录，不自动 commit；遇到冲突时脚本保留冲突状态并输出基础分析，随后 Codex 读取冲突文件、三方版本和本次合并完整改动范围，检索相关路由、菜单、API、权限、配置、schema、测试和文档，给出 AI 语义级整体修复方案供你选择，确认后再修改文件解决冲突。合并成功后，任务 worktree 会自动对齐到主线，并带出任务会话记忆。
 - `$worktree-take-sql` 只处理任务 worktree 中新增且未合并的 `.sql` 文件，复制到主项目目录后删除任务目录内对应文件，不自动 commit。
-- `$worktree-push-sql` 只处理任务 worktree 中新增且未合并的 `.sql` 文件，会自动 commit 和 push，并只把本次 SQL 文件同步到各任务；提交信息格式为 `add SQL文件 SQL文件`。
+- `$worktree-push-sql` 只处理任务 worktree 中新增且未合并的 `.sql` 文件，会自动 commit 和 push，并只把本次 SQL 文件同步到各任务；提交信息格式为 `add SQL文件 SQL文件`。部分任务 SQL 同步失败时脚本以非零退出码结束。
 - 主项目目录有无法确认来源的未提交改动时，不执行 switch/merge/sync/take-sql/push-sql。
 - sync 只负责把主项目最新提交带到任务目录；遇到冲突或可能覆盖任务成果时停止，不提供强制覆盖参数；如果任务本地改动已被主项目吸收，会自动把任务目录重置对齐到主线。
 - 任务 worktree 有未合并改动时，不执行 end；如果这些改动已包含在主项目当前提交中，可以直接清理。
-- `$worktree-end <任务名> --force` 会跳过任务 worktree 剩余改动检查并删除任务目录、任务分支和本地状态。它适用于你已经确认最终结果已在主项目提交中，且任务 worktree 里的剩余差异只是冲突语义合并后的原始差异或不再需要的改动；不要用它代替 merge 或 review。
+- `$worktree-end <任务名> --force` 会跳过任务分支提交和任务 worktree 剩余改动检查，并删除任务目录、任务分支和本地状态。它适用于你已经确认最终结果已在主项目提交中，且任务 worktree 里的剩余差异只是冲突语义合并后的原始差异或不再需要的改动；不要用它代替 merge 或 review。
 - 遇到数据库 schema、路由、权限、授权、配置、状态机等语义冲突时，Codex 应停止并让用户决定。
 - 不自动启动项目服务。
+
+## 退出码约定
+
+- `0`：操作完成，包括正常的空操作（没有任务、任务没有待合并改动）。
+- 非零：操作被阻止或未完成。包括主目录有来源不明改动、合并冲突、任务无法同步、`$worktree-sync --all` 或 `$worktree-push-sql` 有部分任务被阻止、`$worktree-end` 发现任务分支提交或未合并改动。
+
+Codex 遇到非零退出码时应先说明原因，再让用户决定，不要自动重试或绕过约束。
 
 ## 许可证
 

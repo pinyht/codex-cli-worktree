@@ -1,11 +1,11 @@
 ---
 name: worktree-status
-description: 查看当前 Codex CLI 窗口所在 Git 仓库的未提交文件状态。用户输入 $worktree-status 时使用。
+description: 查看当前 Codex CLI 窗口所在 Git 仓库的未提交文件状态。仅在用户输入 $worktree-status 时执行。
 ---
 
 # worktree-status
 
-当用户输入 `$worktree-status`，或要求查看当前窗口有哪些未提交文件时使用本 skill。
+当用户输入 `$worktree-status` 时使用本 skill。
 
 ## 执行要求
 

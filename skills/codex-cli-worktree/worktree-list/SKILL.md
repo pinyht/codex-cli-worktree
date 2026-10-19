@@ -1,11 +1,11 @@
 ---
 name: worktree-list
-description: 查看当前仓库的 codex-cli-worktree 并行 Git worktree 任务列表。用户输入 $worktree-list 时使用。
+description: 查看当前仓库的 codex-cli-worktree 并行 Git worktree 任务列表。仅在用户输入 $worktree-list 时执行。
 ---
 
 # worktree-list
 
-当用户输入 `$worktree-list` 或要求查看 worktree 并行任务列表时使用本 skill。
+当用户输入 `$worktree-list` 时使用本 skill。
 
 ## 执行要求
 

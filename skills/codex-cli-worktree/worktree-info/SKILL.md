@@ -1,11 +1,11 @@
 ---
 name: worktree-info
-description: 查看指定 codex-cli-worktree 任务的状态、分支和任务目录。用户输入 $worktree-info 任务名时使用。
+description: 查看指定 codex-cli-worktree 任务的状态、分支和任务目录。仅在用户输入 $worktree-info 任务名时执行。
 ---
 
 # worktree-info
 
-当用户输入 `$worktree-info 任务名`，或要求查看指定 worktree 任务信息、查找任务目录时使用本 skill。
+当用户输入 `$worktree-info 任务名` 时使用本 skill。
 
 ## 执行要求
 

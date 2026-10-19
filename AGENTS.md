@@ -52,13 +52,18 @@ python3 uninstall.py
 - 不再提供 `/worktree-install` 或自定义 slash prompt；安装和升级统一由 `install.py` 完成。
 - 修改命令行为时，优先更新 `scripts/worktree-task.py`，Skills 只保留简洁的调用说明和安全约束。
 - 修改通用行为规则时，必须同步更新 `install.py` 内的 `VERSION` 和 `RULE_BLOCK`，必要时同步更新中英文 README。
-- `install.py` 必须幂等：重复执行不能破坏用户已有 `~/.codex/AGENTS.md`，只能替换标记块之间的内容。
+- 每个 Skill 目录必须包含 `agents/openai.yaml`，并设置 `allow_implicit_invocation: false`；这些命令只能由用户手动输入 `$worktree-*` 触发，模型不得自行调用，也不得用直接执行脚本、git 命令、复制文件、stash 等方式复刻流程。
+- `install.py` 必须幂等：重复执行不能破坏用户已有 `~/.codex/AGENTS.md`，只能替换标记块之间的内容；安装时必须校验每个 Skill 的 `SKILL.md` 和 `agents/openai.yaml`。
 - 本机任务状态必须按仓库隔离保存在 `~/.codex-cli-worktree/state/`，不得写入业务项目仓库。
+- 新任务 worktree 默认创建在仓库同级的 `../<repo-name>.codex-worktrees/`。
 - `$worktree-merge` 不得自动 commit；必须使用三方合并把任务改动带回主项目目录，遇到 Git 冲突时脚本保留冲突状态并输出基础分析，随后 Codex 必须读取冲突文件、三方版本和本次合并完整改动范围，检索相关路由、菜单、API、权限、配置、schema、测试和文档，给出 AI 语义级整体修复方案供用户选择，用户确认后再修改文件解决冲突。
+- `$worktree-merge` 成功后必须带出任务目录会话中的用户要求、最后总结和会话 ID；用户明确要求提交时，Codex 依据任务会话记忆和主项目 `git diff` 写提交信息并执行 `git add -A && git commit`。用户也可能自己手动提交并自己写说明，此时不要重复提交。
+- 任务分支上有主线没有的提交时，`$worktree-merge`、`$worktree-switch` 和非强制 `$worktree-end` 必须停止，并提示用户按脚本输出的 `git reset --soft <提交>` 在任务目录恢复；不得绕过该检查。
 - `$worktree-take-sql` 只用于把任务 worktree 中新增且未合并的 `.sql` 文件提前拿到主项目目录，并从任务 worktree 删除；不自动 commit。
 - `$worktree-push-sql` 用于一键把任务 worktree 中新增且未合并的 `.sql` 文件提前提交到主线：拿到主项目目录、删除任务副本、自动 add/commit/push、只把本次 SQL 文件同步到各任务，并切换到该任务预览。
 - `$worktree-status` 只查看当前窗口所在 Git 仓库的 `git status --short --branch --untracked-files=all`，不修改任何文件。
-- `$worktree-end 任务名 --force` 会跳过任务 worktree 剩余改动检查并删除任务目录、任务分支和本地状态；仅在用户明确确认任务 worktree 剩余差异可以放弃时使用，不得用来替代 merge 或 review。
+- `$worktree-end 任务名 --force` 会跳过任务分支提交和任务 worktree 剩余改动检查，并删除任务目录、任务分支和本地状态；仅在用户明确确认任务 worktree 剩余差异可以放弃时使用，不得用来替代 merge 或 review。
+- 脚本以非零退出码表示操作被阻止或未完成（包括拒绝执行、合并冲突、同步失败、SQL 部分同步失败和 end 发现未合并改动）；遇到非零退出码时先向用户说明原因，不要自动重试，也不要用其他方式绕过约束。
 - 遇到业务冲突、数据库 schema、权限、路由、授权、配置、状态机冲突，必须停止并让用户决定。
 - 不要自动启动任何项目服务。
 - 先不考虑 Windows 适配，避免引入复杂兼容逻辑。
@@ -66,5 +71,5 @@ python3 uninstall.py
 ## 迁移说明
 
 - 要发布为独立仓库时，把本 `.codex` 目录整体复制出去，并把复制后的目录作为仓库根目录。
-- 复制到新仓库后，可以删除不需要的本机状态目录，例如 `worktrees/`。
+- 复制到新仓库后，可以删除不需要的本机状态目录，例如 `~/.codex-cli-worktree/state/` 或 `../<repo-name>.codex-worktrees/`。
 - 独立仓库根目录保留本文件，便于后续 Codex 迭代维护。

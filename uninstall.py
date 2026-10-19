@@ -26,9 +26,14 @@ def remove_agents_block(home_codex):
 
     before, rest = content.split(BEGIN, 1)
     _old, after = rest.split(END, 1)
-    new_content = before.rstrip() + "\n\n" + after.lstrip()
-    if new_content.strip():
-        agents.write_text(new_content.rstrip() + "\n", encoding="utf-8")
+    parts = []
+    if before.strip():
+        parts.append(before.rstrip())
+    if after.strip():
+        parts.append(after.lstrip())
+    new_content = "\n\n".join(parts).rstrip()
+    if new_content:
+        agents.write_text(new_content + "\n", encoding="utf-8")
     else:
         agents.write_text("", encoding="utf-8")
     return "updated"
