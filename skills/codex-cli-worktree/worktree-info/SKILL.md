@@ -14,4 +14,4 @@ description: 查看指定 codex-cli-worktree 任务的状态、分支和任务�
 - 调用 `python3 "$HOME/.agents/skills/codex-cli-worktree/scripts/worktree-task.py" info "任务名"`。
 - 不要启动任何项目服务。
 - 成功后，向用户说明这是任务信息查询，不会自动切换当前 Codex CLI 会话目录。
-- 如果用户要继续开发，提示使用脚本输出的 `cd ... && codex` 命令在任务目录打开新的 Codex CLI。
+- 如果用户要继续开发，必须把脚本输出的 `cd ... && codex` 命令原样放在最终回复的代码块中，不要只给目录，不要省略 `&& codex`，不要改写路径。

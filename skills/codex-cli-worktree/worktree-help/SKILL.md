@@ -60,4 +60,5 @@ $worktree-help              查看本帮助
 - `$worktree-switch` 只用于临时预览，不更新任务基线、不自动 commit；主目录有非 switch 产生的未提交改动时会停止。
 - `$worktree-merge` 成功后带出任务会话记忆；任务分支上有主线没有的提交时，merge、switch 和非强制 end 都会停止。
 - `$worktree-info` 只查询任务信息，不会自动切换当前 Codex CLI 会话目录。
+- `$worktree-new` 和 `$worktree-info` 成功后，Codex 必须原样给出可复制的 `cd ... && codex` 继续开发命令。
 - 脚本以非零退出码表示操作被阻止或未完成；遇到非零退出码时先说明原因，不要自动重试，也不要用其他方式绕过约束。

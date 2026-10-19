@@ -93,6 +93,8 @@ $worktree-push-sql fix login redirect migrations/18.sql
 
 `$worktree-*` is a Codex Skill mention, not a shell command and not the old `/worktree-*` slash command. Type `$worktree-` and use Codex completion to choose a skill. All worktree Skills are explicit-invocation only: you must type `$worktree-*`, and Codex will not select them from ordinary task descriptions.
 
+After `$worktree-new` or `$worktree-info` succeeds, Codex must put the exact copyable `cd ... && codex` command in a code block; you should not have to assemble it from the task directory.
+
 `<task name>` is the human-readable task name you choose, for example `fix-login`. Task names may contain Chinese characters, English letters, digits, `-`, `_`, and `.`, but must be a single argument: no spaces, tabs, newlines, path separators, or path-invalid characters such as `: * ? " < > |`. Task names must not start or end with `-`, so they cannot conflict with options such as `--all` and the generated worktree directory remains tidy.
 
 ## Uninstall
@@ -140,8 +142,8 @@ Suppose the task is named `fix login redirect`:
 
 1. Open Codex CLI in the main project directory.
 2. Type `$worktree-new fix login redirect`.
-3. Codex creates a task worktree and prints the task directory.
-4. Open a separate Codex CLI session in that task directory.
+3. Codex creates a task worktree and gives you a copyable `cd ... && codex` command.
+4. Copy that command to open a separate Codex CLI session in the task directory.
 5. Develop in the task directory. Run only necessary short-lived commands there; do not start long-running project services.
 6. When you need to preview the task, return to the main project directory and type `$worktree-switch fix login redirect`, then manually start services or run verification commands.
 7. To preview another task, type `$worktree-switch another task`; the tool first checks that the main project directory only contains the previous preview, then restores it cleanly and switches tasks.

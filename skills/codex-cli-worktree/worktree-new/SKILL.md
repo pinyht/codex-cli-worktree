@@ -14,4 +14,11 @@ description: 创建新的 codex-cli-worktree 并行 Git worktree 任务。仅在
 - 调用 `python3 "$HOME/.agents/skills/codex-cli-worktree/scripts/worktree-task.py" new "任务名"`。
 - 不要启动任何项目服务。
 - 如果脚本提示主项目目录不干净、任务已存在、分支已存在或目录已存在，停止并把原因告诉用户。
-- 成功后告诉用户任务目录，并提示用户在该目录打开新的 Codex CLI 继续开发。
+- 成功后必须把脚本输出的 `继续开发命令（复制以下整行）:` 下一行原样放在最终回复的代码块中，例如：
+
+  ```bash
+  cd '/path/to/repo.codex-worktrees/task-任务名-xxxxxxxx' && codex
+  ```
+
+  不要只给任务目录，不要省略 `&& codex`，不要改写路径。
+- 再提醒用户在该目录打开新的 Codex CLI 继续开发；不要启动项目服务。

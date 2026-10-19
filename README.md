@@ -93,6 +93,8 @@ $worktree-push-sql 修复登录跳转 migrations/18.sql
 
 `$worktree-*` 是 Codex Skill mention，不是 shell 命令，也不是旧版 `/worktree-*` 斜杠命令。输入 `$worktree-` 后可以用 Codex 的补全选择具体 skill。所有 worktree Skill 都是显式调用模式，必须由你输入 `$worktree-*`，Codex 不会根据普通描述自动选择。
 
+`$worktree-new` 和 `$worktree-info` 成功后，Codex 会把可复制的 `cd ... && codex` 继续开发命令放在代码块中，不需要再从任务目录手动拼接命令。
+
 任务名可以使用中文、英文、数字、`-`、`_`、`.`，但必须是单个参数，不能包含空格、Tab、换行、路径分隔符或 `: * ? " < > |` 等路径非法字符，也不能以 `-` 开头或结尾。这样任务名可以直接复制到 `$worktree-switch 任务名` 等命令里。
 
 ## 卸载
@@ -140,8 +142,8 @@ python3 install.py
 
 1. 在主项目目录打开 Codex CLI。
 2. 输入 `$worktree-new 修复登录跳转`。
-3. Codex 会创建一个任务 worktree，并输出任务目录。
-4. 在输出的任务目录里打开新的 Codex CLI。
+3. Codex 会创建一个任务 worktree，并给出可复制的 `cd ... && codex` 命令。
+4. 复制该命令，在任务目录打开新的 Codex CLI。
 5. 在任务目录开发、改文件、跑必要的短命令；不要在任务目录启动长期运行的项目服务。
 6. 需要临时看效果时，回到主项目目录输入 `$worktree-switch 修复登录跳转`，然后手动启动服务或运行验证命令。
 7. 如果要切换看另一个任务，直接输入 `$worktree-switch 另一个任务名`；工具会先确认主项目目录只有上一轮预览改动，再恢复干净并切换。

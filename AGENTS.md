@@ -56,6 +56,7 @@ python3 uninstall.py
 - `install.py` 必须幂等：重复执行不能破坏用户已有 `~/.codex/AGENTS.md`，只能替换标记块之间的内容；安装时必须校验每个 Skill 的 `SKILL.md` 和 `agents/openai.yaml`。
 - 本机任务状态必须按仓库隔离保存在 `~/.codex-cli-worktree/state/`，不得写入业务项目仓库。
 - 新任务 worktree 默认创建在仓库同级的 `../<repo-name>.codex-worktrees/`。
+- `$worktree-new` 和 `$worktree-info` 成功后，必须把脚本输出的 `cd ... && codex` 继续开发命令原样放在代码块中，不能只给任务目录或省略 `&& codex`。
 - `$worktree-merge` 不得自动 commit；必须使用三方合并把任务改动带回主项目目录，遇到 Git 冲突时脚本保留冲突状态并输出基础分析，随后 Codex 必须读取冲突文件、三方版本和本次合并完整改动范围，检索相关路由、菜单、API、权限、配置、schema、测试和文档，给出 AI 语义级整体修复方案供用户选择，用户确认后再修改文件解决冲突。
 - `$worktree-merge` 成功后必须带出任务目录会话中的用户要求、最后总结和会话 ID；用户明确要求提交时，Codex 依据任务会话记忆和主项目 `git diff` 写提交信息并执行 `git add -A && git commit`。用户也可能自己手动提交并自己写说明，此时不要重复提交。
 - 任务分支上有主线没有的提交时，`$worktree-merge`、`$worktree-switch` 和非强制 `$worktree-end` 必须停止，并提示用户按脚本输出的 `git reset --soft <提交>` 在任务目录恢复；不得绕过该检查。

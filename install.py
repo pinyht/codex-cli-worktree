@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 
-VERSION = "16"
+VERSION = "17"
 BEGIN = "<!-- codex-worktree-rules:start -->"
 END = "<!-- codex-worktree-rules:end -->"
 SKILL_BUNDLE_NAME = "codex-cli-worktree"
@@ -47,8 +47,9 @@ RULE_BLOCK = f"""{BEGIN}
   - `$worktree-end 任务名`：清理任务 worktree、任务分支和本地状态记录；任务分支有主线没有的提交或仍有未合并改动时停止。
   - `$worktree-end 任务名 --force`：跳过任务分支提交和剩余改动检查并强制清理任务；仅在确认任务 worktree 剩余差异可以放弃时使用。
   - `$worktree-list`：查看所有 worktree 任务。
-  - `$worktree-info 任务名`：查看指定任务的状态、分支和任务目录。
+  - `$worktree-info 任务名`：查看指定任务的状态、分支、任务目录和可复制的继续开发命令。
   - `$worktree-help`：查看命令帮助。
+- `$worktree-new` 和 `$worktree-info` 成功后，必须把脚本输出的 `cd ... && codex` 继续开发命令原样放在代码块中，不能只给任务目录或省略 `&& codex`。
 - `$worktree-new`、`$worktree-switch`、`$worktree-merge`、`$worktree-sync`、`$worktree-take-sql`、`$worktree-push-sql`、`$worktree-end` 必须在主项目目录执行；`$worktree-list`、`$worktree-info`、`$worktree-current`、`$worktree-status` 可在主项目目录或任务 worktree 执行。
 - 主项目目录是可重置的统一调试槽，只用于创建任务、切换预览、合并任务、同步任务、用户运行服务验证和提交；任务目录用于具体开发和测试。新任务 worktree 默认创建在仓库同级的 `../<repo-name>.codex-worktrees/`。
 - worktree 命令不得自动启动任何项目服务。

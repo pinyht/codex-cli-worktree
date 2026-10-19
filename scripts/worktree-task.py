@@ -640,8 +640,10 @@ def cmd_new(args):
     print(f"已创建 worktree 任务: {name}")
     print(f"分支: {branch}")
     print(f"目录: {worktree}")
-    print("继续开发命令:")
+    print()
+    print("继续开发命令（复制以下整行）:")
     print(f"cd {sh_quote(str(worktree))} && codex")
+    print()
     print("请在该目录中打开新的 Codex CLI 继续开发；不要启动项目服务。")
 
 
@@ -1343,8 +1345,10 @@ def cmd_info(args):
     print(f"状态: {task.get('status', 'unknown')}")
     print(f"分支: {task['branch']}")
     print(f"目录: {task['worktree']}")
-    print("继续开发命令:")
+    print()
+    print("继续开发命令（复制以下整行）:")
     print(f"cd {sh_quote(task['worktree'])} && codex")
+    print()
     print("请在该目录中打开新的 Codex CLI 继续开发；不要启动项目服务。")
 
 
